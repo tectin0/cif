@@ -1,0 +1,19 @@
+[package]
+name = "cif"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.93"
+serde = { version = "1.0.215", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+
+[[example]]
+name = "phase_struct"
+path = "examples/phase_struct.rs"
+required-features = ["serde"]
+
+[dev-dependencies]
+serde_json = "1.0.132"
