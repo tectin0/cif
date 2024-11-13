@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, string};
 
 pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
     let chunks = bytes
@@ -55,7 +55,7 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
             continue;
         }
 
-        let chunk = chunk.trim_ascii_end();
+        let mut chunk = chunk.trim_ascii_end();
 
         if chunk.is_empty() {
             is_new_line = is_new_line_local;
@@ -113,28 +113,15 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
         }
 
         if is_string_with_spaces {
-            let mut string_chunk = chunk;
-
-            string_chunk = string_chunk
-                .strip_prefix(b"'")
-                .unwrap_or(&mut string_chunk)
-                .strip_prefix(b"\"")
-                .unwrap_or(&mut string_chunk)
-                .strip_suffix(b"'")
-                .unwrap_or(&mut string_chunk)
-                .strip_suffix(b"\"")
-                .unwrap_or(&mut string_chunk);
-
-            string_chunk = string_chunk
-                .strip_suffix(b"\n")
-                .unwrap_or(&mut string_chunk)
-                .strip_suffix(b"\r")
-                .unwrap_or(&mut string_chunk);
+            let string_chunk = chunk
+                .into_iter()
+                .filter(|&&byte| byte != b'\'' && byte != b'\"' && byte != b'\r' && byte != b'\n')
+                .collect::<Vec<&u8>>();
 
             string_with_spaces.extend(string_chunk);
             string_with_spaces.push(b' ');
 
-            match chunk.last() == Some(&b"'"[0]) || chunk.last() == Some(&b"\""[0]) {
+            match chunk.last() == Some(&b'\'') || chunk.last() == Some(&b'\"') {
                 true => {
                     data_value = Some(
                         String::from_utf8_lossy(&string_with_spaces.strip_suffix(b" ").unwrap())

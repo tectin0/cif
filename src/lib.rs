@@ -1,4 +1,4 @@
-// TODO: space group still has a `'` at the beginning -> need to remove it
+// TODO: find out where / how the site fraction is stored
 
 pub(crate) mod parse;
 pub mod phase;
