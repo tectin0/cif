@@ -3,13 +3,7 @@ use std::collections::BTreeMap;
 pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
     let chunks = bytes
         .split_inclusive(|&byte| byte == b'\n' || byte == b'\t' || byte == b' ')
-        .filter(|chunk| {
-            !chunk.is_empty()
-                && chunk.first().unwrap() != &b'\n'
-                && chunk.first().unwrap() != &b'\r'
-                && chunk.first().unwrap() != &b' '
-                && chunk.first().unwrap() != &b'\t'
-        });
+        .filter(|chunk| !chunk.is_empty() && chunk != &[b' '] && chunk != &[b'\t']);
 
     let mut is_loop = false;
 
@@ -30,7 +24,10 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
 
     let mut values_cleared_this_loop = 0;
 
-    for chunk in chunks.skip(1) {
+    log::debug!("n: {}", b'\n');
+    log::debug!("r: {}", b'\r');
+
+    for chunk in chunks.skip(1).take(100) {
         if chunk.is_empty() {
             continue;
         }
@@ -45,14 +42,38 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
 
         if is_new_line_local && is_comment {
             is_comment = false;
+            is_new_line = is_new_line_local;
+            log::debug!("{:?}", chunk);
+            log::debug!("comment l: {}", String::from_utf8_lossy(chunk));
             continue;
         }
 
         if is_comment {
+            log::debug!("{:?}", chunk);
+            log::debug!("comment: {}", String::from_utf8_lossy(chunk));
+            is_new_line = is_new_line_local;
             continue;
         }
 
         let chunk = chunk.trim_ascii_end();
+
+        if chunk.is_empty() {
+            is_new_line = is_new_line_local;
+            continue;
+        }
+
+        log::debug!("{}", String::from_utf8_lossy(chunk));
+        log::debug!(
+            "nlen {} vlen {} is_loop {} is_new_line {} is_comment {} is_string_with_spaces {} is_multi_line_string {} values_cleared_this_loop {}",
+            temp_data_names.len(),
+            temp_data_values.len(),
+            is_loop,
+            is_new_line,
+            is_comment,
+            is_string_with_spaces,
+            is_multi_line_string,
+            values_cleared_this_loop
+        );
 
         if is_new_line {
             is_multi_line_string ^= chunk[0] == b';';
@@ -87,7 +108,7 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
             multi_line_string.clear();
         }
 
-        if chunk.first() == Some(&b"'"[0]) {
+        if chunk.first() == Some(&b"'"[0]) || chunk.first() == Some(&b"\""[0]) {
             is_string_with_spaces = true;
         }
 
@@ -97,7 +118,11 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
             string_chunk = string_chunk
                 .strip_prefix(b"'")
                 .unwrap_or(&mut string_chunk)
+                .strip_prefix(b"\"")
+                .unwrap_or(&mut string_chunk)
                 .strip_suffix(b"'")
+                .unwrap_or(&mut string_chunk)
+                .strip_suffix(b"\"")
                 .unwrap_or(&mut string_chunk);
 
             string_chunk = string_chunk
@@ -109,7 +134,7 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
             string_with_spaces.extend(string_chunk);
             string_with_spaces.push(b' ');
 
-            match chunk.last() == Some(&b"'"[0]) {
+            match chunk.last() == Some(&b"'"[0]) || chunk.last() == Some(&b"\""[0]) {
                 true => {
                     data_value = Some(
                         String::from_utf8_lossy(&string_with_spaces.strip_suffix(b" ").unwrap())
