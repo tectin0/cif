@@ -1,5 +1,6 @@
 // TODO: space group still has a `'` at the beginning -> need to remove it
 
+pub(crate) mod parse;
 pub mod phase;
 mod read_cif;
 

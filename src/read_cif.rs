@@ -27,7 +27,7 @@ pub fn read_cif(bytes: Vec<u8>) -> BTreeMap<String, Vec<String>> {
     log::debug!("n: {}", b'\n');
     log::debug!("r: {}", b'\r');
 
-    for chunk in chunks.skip(1).take(100) {
+    for chunk in chunks.skip(1) {
         if chunk.is_empty() {
             continue;
         }
