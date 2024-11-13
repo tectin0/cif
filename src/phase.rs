@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 use anyhow::Context;
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Phase {
     pub cell: Cell,
     pub atoms: Atoms,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Cell {
     pub a: f64,
     pub b: f64,
@@ -24,11 +24,11 @@ pub struct Cell {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Atoms(pub Vec<Atom>);
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Atom {
     pub label: String,
     #[cfg_attr(feature = "serde", serde(rename = "type"))]
@@ -45,7 +45,7 @@ pub struct Atom {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Uaniso {
     #[cfg_attr(feature = "serde", serde(rename = "U11"))]
     pub u11: f64,
