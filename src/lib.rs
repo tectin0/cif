@@ -1,5 +1,3 @@
-// TODO: find out where / how the site fraction is stored
-
 pub(crate) mod parse;
 mod parser;
 pub mod phase;

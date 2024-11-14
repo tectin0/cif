@@ -1,5 +1,6 @@
 use cif::{
-    phase::{Atom, Atoms, Cell, Uaniso}, Parser, Phase,
+    phase::{Atom, Atoms, Cell, Uaniso},
+    Parser, Phase,
 };
 
 #[test]
@@ -40,7 +41,6 @@ fn test() {
                     u13: 0.0,
                     u23: 0.0,
                 },
-                site_fraction: 1.0,
             },
             Atom {
                 label: "Ti1".to_string(),
@@ -60,7 +60,6 @@ fn test() {
                     u13: 0.0,
                     u23: 0.0,
                 },
-                site_fraction: 1.0,
             },
             Atom {
                 label: "O1".to_string(),
@@ -80,7 +79,6 @@ fn test() {
                     u13: 0.0,
                     u23: 0.0,
                 },
-                site_fraction: 1.0,
             },
         ]),
     };

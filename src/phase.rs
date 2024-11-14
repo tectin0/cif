@@ -40,7 +40,6 @@ pub struct Atom {
     pub adp_type: String,
     pub u_iso_or_equiv: f64,
     pub u_aniso: Uaniso,
-    pub site_fraction: f64,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -165,7 +164,6 @@ impl TryFrom<&Cif> for Atoms {
                 adp_type: adp_type[index].clone(),
                 u_iso_or_equiv: u_iso_or_equiv.get(index).cloned().unwrap_or_default(),
                 u_aniso: u_aniso.get(index).cloned().unwrap_or_default(),
-                site_fraction: 1.0, // TODO: implement
             };
 
             atoms.push(atom);
