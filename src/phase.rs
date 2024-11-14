@@ -1,5 +1,4 @@
-use crate::parse::GetAndParse;
-use std::collections::BTreeMap;
+use crate::{parse::GetAndParse, parser::Cif};
 
 use anyhow::Context;
 
@@ -61,10 +60,10 @@ pub struct Uaniso {
     pub u23: f64,
 }
 
-impl TryFrom<&BTreeMap<String, Vec<String>>> for Phase {
+impl TryFrom<&Cif> for Phase {
     type Error = anyhow::Error;
 
-    fn try_from(map: &BTreeMap<String, Vec<String>>) -> anyhow::Result<Self> {
+    fn try_from(map: &Cif) -> anyhow::Result<Self> {
         Ok(Self {
             cell: Cell::try_from(map).context("Failed to parse cell")?,
             atoms: Atoms::try_from(map).context("Failed to parse atoms")?,
@@ -72,10 +71,10 @@ impl TryFrom<&BTreeMap<String, Vec<String>>> for Phase {
     }
 }
 
-impl TryFrom<&BTreeMap<String, Vec<String>>> for Cell {
+impl TryFrom<&Cif> for Cell {
     type Error = anyhow::Error;
 
-    fn try_from(map: &BTreeMap<String, Vec<String>>) -> anyhow::Result<Self> {
+    fn try_from(map: &Cif) -> anyhow::Result<Self> {
         let values = [
             "_cell_length_a",
             "_cell_length_b",
@@ -102,10 +101,10 @@ impl TryFrom<&BTreeMap<String, Vec<String>>> for Cell {
     }
 }
 
-impl TryFrom<&BTreeMap<String, Vec<String>>> for Atoms {
+impl TryFrom<&Cif> for Atoms {
     type Error = anyhow::Error;
 
-    fn try_from(map: &BTreeMap<String, Vec<String>>) -> anyhow::Result<Self> {
+    fn try_from(map: &Cif) -> anyhow::Result<Self> {
         let label = map.get_and_parse_all::<String>("_atom_site_label")?;
         let type_ = map.get_and_parse_all::<String>("_atom_site_type_symbol")?;
 

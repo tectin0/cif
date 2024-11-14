@@ -1,6 +1,8 @@
 #![deny(elided_lifetimes_in_paths)]
 use std::collections::BTreeMap;
 
+use anyhow::Context;
+
 #[derive(Debug)]
 struct GlobalFlags {
     is_loop: bool,
@@ -79,7 +81,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> BTreeMap<String, Vec<String>> {
+    pub fn parse(&mut self) -> Cif {
         log::debug!("Parsing CIF file");
 
         self.skip_until_first_data_chunk();
@@ -113,7 +115,7 @@ impl<'a> Parser<'a> {
             self.next();
         }
 
-        self.data.clone()
+        Cif(self.data.clone())
     }
 
     fn next(&mut self) {
@@ -355,7 +357,23 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn read_cif<'a>(bytes: &'a [u8]) -> BTreeMap<String, Vec<String>> {
+pub struct Cif(BTreeMap<String, Vec<String>>);
+
+impl Cif {
+    pub fn try_into_phase(self) -> anyhow::Result<crate::Phase> {
+        crate::Phase::try_from(&self).context("Failed to parse phase")
+    }
+}
+
+impl std::ops::Deref for Cif {
+    type Target = BTreeMap<String, Vec<String>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub fn read_cif<'a>(bytes: &'a [u8]) -> Cif {
     let mut parser = Parser::<'a>::new(bytes);
 
     parser.parse()
