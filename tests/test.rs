@@ -1,6 +1,5 @@
 use cif::{
-    phase::{Atom, Atoms, Cell, Uaniso},
-    read_cif, Parser, Phase,
+    phase::{Atom, Atoms, Cell, Uaniso}, Parser, Phase,
 };
 
 #[test]

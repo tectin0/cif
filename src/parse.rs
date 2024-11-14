@@ -26,8 +26,7 @@ impl GetAndParse for BTreeMap<String, Vec<String>> {
         <T as FromStr>::Err: 'static,
     {
         self.get(key)
-            .context(format!("Key: `{}` does not exist", key))?
-            .get(0)
+            .context(format!("Key: `{}` does not exist", key))?.first()
             .context(format!("Key: `{}` does not have a value", key))?
             .parse_without_uncertainty::<T>()
             .context(format!("Failed to parse value for key: `{}`", key))
@@ -73,9 +72,8 @@ impl ParseWithoutUncertainty for &String {
     {
         let stripped = self
             .as_bytes()
-            .into_iter()
-            .take_while(|&byte| byte != &b'(')
-            .map(|byte| *byte)
+            .iter()
+            .take_while(|&byte| byte != &b'(').copied()
             .collect::<Vec<u8>>();
 
         String::from_utf8(stripped)

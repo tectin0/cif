@@ -84,7 +84,7 @@ impl<'a> Parser<'a> {
 
         self.skip_until_first_data_chunk();
 
-        while let Some(_) = self.chunk {
+        while self.chunk.is_some() {
             self.update_data_from_temp_data()
                 .and_then(|()| self.check_is_empty())
                 .and_then(|()| self.check_has_new_line_byte())
@@ -103,7 +103,7 @@ impl<'a> Parser<'a> {
                 .and_then(|()| self.check_loop_end())
                 .and_then(|()| self.handle_if_data_chunk())
                 .and_then(|()| self.handle_if_value_chunk())
-                .unwrap_or_else(|| ());
+                .unwrap_or(());
 
             log::debug!("------{:?}", self.global_flags);
             log::debug!("------{:?}", self.local_flags);
@@ -129,7 +129,7 @@ impl<'a> Parser<'a> {
     }
 
     fn check_is_empty(&mut self) -> Option<()> {
-        (!self.chunk.unwrap().is_empty()).then(|| ())
+        (!self.chunk.unwrap().is_empty()).then_some(())
     }
 
     fn reset_flags_for_chunk(&mut self) {
@@ -189,13 +189,13 @@ impl<'a> Parser<'a> {
         if self.global_flags.is_string_multiline {
             let mut string_chunk = self.chunk.unwrap();
 
-            string_chunk = string_chunk.strip_prefix(b";").unwrap_or(&mut string_chunk);
+            string_chunk = string_chunk.strip_prefix(b";").unwrap_or(string_chunk);
 
             string_chunk = string_chunk
                 .strip_suffix(b"\n")
-                .unwrap_or(&mut string_chunk)
+                .unwrap_or(string_chunk)
                 .strip_suffix(b"\r")
-                .unwrap_or(&mut string_chunk);
+                .unwrap_or(string_chunk);
 
             self.string_multiline.extend(string_chunk);
             self.string_multiline.push(b' ');
@@ -237,7 +237,7 @@ impl<'a> Parser<'a> {
             let string_chunk = self
                 .chunk
                 .unwrap()
-                .into_iter()
+                .iter()
                 .filter(|&&byte| byte != b'\'' && byte != b'\"' && byte != b'\r' && byte != b'\n')
                 .collect::<Vec<&u8>>();
 
@@ -250,7 +250,7 @@ impl<'a> Parser<'a> {
                 true => {
                     self.temp_data.values.push(
                         String::from_utf8_lossy(
-                            &self.string_with_spaces.strip_suffix(b" ").unwrap(),
+                            self.string_with_spaces.strip_suffix(b" ").unwrap(),
                         )
                         .to_string(),
                     );
@@ -304,7 +304,7 @@ impl<'a> Parser<'a> {
 
     fn handle_if_data_chunk(&mut self) -> Option<()> {
         if self.local_flags.is_data_chunk {
-            let string = String::from_utf8_lossy(&self.chunk.unwrap()).to_string();
+            let string = String::from_utf8_lossy(self.chunk.unwrap()).to_string();
 
             self.temp_data.names.push(string);
 
@@ -316,7 +316,7 @@ impl<'a> Parser<'a> {
 
     fn handle_if_value_chunk(&mut self) -> Option<()> {
         if !self.local_flags.is_data_chunk && !self.local_flags.is_loop_chunk {
-            let string = String::from_utf8_lossy(&self.chunk.unwrap()).to_string();
+            let string = String::from_utf8_lossy(self.chunk.unwrap()).to_string();
 
             self.temp_data.values.push(string);
         }
@@ -361,7 +361,7 @@ pub fn read_cif<'a>(bytes: &'a [u8]) -> BTreeMap<String, Vec<String>> {
     parser.parse()
 }
 
-fn split_input_into_chunks<'a>(bytes: &'a [u8]) -> impl Iterator<Item = &'a [u8]> {
+fn split_input_into_chunks(bytes: &[u8]) -> impl Iterator<Item = &'_ [u8]> {
     bytes
         .split_inclusive(|&byte| byte == b'\n' || byte == b'\t' || byte == b' ')
         .filter(|&chunk| !chunk.is_empty() && chunk != [b' '] && chunk != [b'\t'])

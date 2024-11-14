@@ -1,4 +1,4 @@
-use cif::{phase::Phase, read_cif, Parser};
+use cif::{phase::Phase, Parser};
 
 fn main() {
     let bytes = std::fs::read(r"assets\BaTiO3.cif").unwrap();
