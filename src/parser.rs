@@ -124,9 +124,12 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_until_first_data_chunk(&mut self) {
-        while !self.local_flags.is_data_chunk {
+        while !self.local_flags.is_data_chunk && self.chunk.is_some() {
             self.next();
-            self.check_is_data_chunk();
+
+            if self.chunk.is_some() {
+                self.check_is_data_chunk();
+            }
         }
     }
 
