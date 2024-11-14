@@ -1,5 +1,5 @@
 #![deny(elided_lifetimes_in_paths)]
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, io::IsTerminal};
 
 use anyhow::Context;
 
@@ -123,13 +123,21 @@ impl<'a> Parser<'a> {
         self.reset_flags_for_chunk();
     }
 
+    // TODO: a little bit convoluted
     fn skip_until_first_data_chunk(&mut self) {
-        while !self.local_flags.is_data_chunk && self.chunk.is_some() {
-            self.next();
+        self.next();
 
-            if self.chunk.is_some() {
-                self.check_is_data_chunk();
+        let mut is_stop = false;
+
+        while !is_stop && self.chunk.is_some() {
+            self.check_is_data_chunk();
+            is_stop = self.local_flags.is_data_chunk;
+
+            if is_stop {
+                break;
             }
+
+            self.next();
         }
     }
 
