@@ -1,4 +1,4 @@
-use cif::read_cif;
+use cif::Parser;
 
 fn main() {
     env_logger::builder()
@@ -7,7 +7,7 @@ fn main() {
 
     let bytes = std::fs::read(r"assets\BaTiO3.cif").unwrap();
 
-    let data = read_cif(bytes);
+    let data = Parser::new(&bytes).parse();
 
     for (name, value) in data.iter() {
         println!("{}: {:?}", name, value);

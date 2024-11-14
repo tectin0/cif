@@ -1,13 +1,13 @@
 use cif::{
     phase::{Atom, Atoms, Cell, Uaniso},
-    read_cif, Phase,
+    read_cif, Parser, Phase,
 };
 
 #[test]
 fn test() {
     let bytes = std::fs::read(r"assets\BaTiO3.cif").unwrap();
 
-    let data = read_cif(bytes);
+    let data = Parser::new(&bytes).parse();
 
     let phase: Phase = (&data).try_into().unwrap();
 
