@@ -2,6 +2,7 @@
 use std::{collections::BTreeMap, io::IsTerminal};
 
 use anyhow::Context;
+use crystallib::Phase;
 
 #[derive(Debug)]
 struct GlobalFlags {
@@ -377,8 +378,8 @@ impl<'a> Parser<'a> {
 pub struct Cif(BTreeMap<String, Vec<String>>);
 
 impl Cif {
-    pub fn try_into_phase(self) -> anyhow::Result<crate::Phase> {
-        crate::Phase::try_from(&self).context("Failed to parse phase")
+    pub fn try_into_phase(self) -> anyhow::Result<Phase> {
+        Phase::try_from(&self).context("Failed to parse phase")
     }
 }
 

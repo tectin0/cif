@@ -71,9 +71,9 @@ name = "cif"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "crystallib",
  "env_logger",
  "log",
- "serde",
  "serde_json",
 ]
 
@@ -82,6 +82,14 @@ name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
+
+[[package]]
+name = "crystallib"
+version = "0.1.0"
+source = "git+https://www.github.com/tectin0/crystallib.git#25865c2fbcdee7a9760adc2204611150a6733ff3"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "env_filter"

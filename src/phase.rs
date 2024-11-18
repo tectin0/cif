@@ -1,46 +1,7 @@
-use crate::{parse::GetAndParse, parser::Cif};
-
 use anyhow::Context;
+use crystallib::{Atom, Atoms, Cell, Phase};
 
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct Phase {
-    pub cell: Cell,
-    pub atoms: Atoms,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct Cell {
-    pub a: f64,
-    pub b: f64,
-    pub c: f64,
-    pub alpha: f64,
-    pub beta: f64,
-    pub gamma: f64,
-    pub volume: f64,
-    pub space_group: String,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Atoms(pub Vec<Atom>);
-
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Atom {
-    pub label: String,
-    #[cfg_attr(feature = "serde", serde(rename = "type"))]
-    pub type_: String,
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-    pub occupancy: f64,
-    pub multiplicity: f64,
-    pub adp_type: String,
-    pub u_iso_or_equiv: f64,
-    pub u_aniso: Uaniso,
-}
+use crate::{parse::GetAndParse, parser::Cif};
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -122,33 +83,24 @@ impl TryFrom<&Cif> for Atoms {
             .get_and_parse_all::<String>("_atom_site_adp_type")
             .unwrap_or(vec!["Uiso".to_string(); label.len()]);
 
-        let u_aniso_values = [
-            "_atom_site_aniso_U_11",
-            "_atom_site_aniso_U_22",
-            "_atom_site_aniso_U_33",
-            "_atom_site_aniso_U_12",
-            "_atom_site_aniso_U_13",
-            "_atom_site_aniso_U_23",
-        ]
-        .map(|key| map.get_and_parse_all::<f64>(key))
-        .into_iter()
-        .collect::<Result<Vec<Vec<f64>>, _>>()
-        .unwrap_or_default();
-
-        let mut u_aniso = Vec::new();
-
-        if !u_aniso_values.is_empty() {
-            for u in 0..u_aniso_values[0].len() {
-                u_aniso.push(Uaniso {
-                    u11: u_aniso_values[0][u],
-                    u22: u_aniso_values[1][u],
-                    u33: u_aniso_values[2][u],
-                    u12: u_aniso_values[3][u],
-                    u13: u_aniso_values[4][u],
-                    u23: u_aniso_values[5][u],
-                });
-            }
-        }
+        let u11 = map
+            .get_and_parse_all::<f64>("_atom_site_aniso_U_11")
+            .unwrap_or_default();
+        let u22 = map
+            .get_and_parse_all::<f64>("_atom_site_aniso_U_22")
+            .unwrap_or_default();
+        let u33 = map
+            .get_and_parse_all::<f64>("_atom_site_aniso_U_33")
+            .unwrap_or_default();
+        let u12 = map
+            .get_and_parse_all::<f64>("_atom_site_aniso_U_12")
+            .unwrap_or_default();
+        let u13 = map
+            .get_and_parse_all::<f64>("_atom_site_aniso_U_13")
+            .unwrap_or_default();
+        let u23 = map
+            .get_and_parse_all::<f64>("_atom_site_aniso_U_23")
+            .unwrap_or_default();
 
         let mut atoms = Vec::new();
 
@@ -163,7 +115,12 @@ impl TryFrom<&Cif> for Atoms {
                 multiplicity: multiplicity[index],
                 adp_type: adp_type[index].clone(),
                 u_iso_or_equiv: u_iso_or_equiv.get(index).cloned().unwrap_or_default(),
-                u_aniso: u_aniso.get(index).cloned().unwrap_or_default(),
+                u11: u11.get(index).cloned().unwrap_or_default(),
+                u22: u22.get(index).cloned().unwrap_or_default(),
+                u33: u33.get(index).cloned().unwrap_or_default(),
+                u12: u12.get(index).cloned().unwrap_or_default(),
+                u13: u13.get(index).cloned().unwrap_or_default(),
+                u23: u23.get(index).cloned().unwrap_or_default(),
             };
 
             atoms.push(atom);
