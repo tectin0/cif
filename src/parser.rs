@@ -107,12 +107,18 @@ impl<'a> Parser<'a> {
                 .and_then(|()| self.handle_if_value_chunk())
                 .unwrap_or(());
 
-            log::debug!("------{:?}", self.global_flags);
-            log::debug!("------{:?}", self.local_flags);
-            log::debug!("------No. Names {:?}", self.temp_data.names.len());
-            log::debug!("------No. Values {:?}", self.temp_data.values.len());
+            log::trace!("------{:?}", self.global_flags);
+            log::trace!("------{:?}", self.local_flags);
+            log::trace!("------No. Names {:?}", self.temp_data.names.len());
+            log::trace!("------No. Values {:?}", self.temp_data.values.len());
 
             self.next();
+        }
+
+        if self.temp_data.values.len() > 0 {
+            log::warn!("Parsing was not finished correctly. Some temp data could not be added to the data map.");
+            log::warn!("Names: {:?}", self.temp_data.names);
+            log::warn!("Values: {:?}", self.temp_data.values);
         }
 
         Cif(self.data.clone())
