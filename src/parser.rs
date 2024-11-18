@@ -1,5 +1,4 @@
-#![deny(elided_lifetimes_in_paths)]
-use std::{collections::BTreeMap, io::IsTerminal};
+use std::collections::BTreeMap;
 
 use anyhow::Context;
 use crystallib::Phase;
@@ -116,7 +115,7 @@ impl<'a> Parser<'a> {
             self.next();
         }
 
-        if self.temp_data.values.len() > 0 {
+        if !self.temp_data.values.is_empty() {
             log::warn!("Parsing was not finished correctly. Some temp data could not be added to the data map.");
             log::warn!("Names: {:?}", self.temp_data.names);
             log::warn!("Values: {:?}", self.temp_data.values);
