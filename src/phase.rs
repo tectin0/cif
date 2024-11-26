@@ -1,5 +1,5 @@
 use anyhow::Context;
-use crystallib::{Atom, Atoms, Cell, Phase};
+use crystallib::{AdpType, Atom, Atoms, Cell, Phase};
 
 use crate::{parse::GetAndParse, parser::Cif};
 
@@ -80,8 +80,8 @@ impl TryFrom<&Cif> for Atoms {
             .unwrap_or_default();
 
         let adp_type = map
-            .get_and_parse_all::<String>("_atom_site_adp_type")
-            .unwrap_or(vec!["Uiso".to_string(); label.len()]);
+            .get_and_parse_all::<AdpType>("_atom_site_adp_type")
+            .unwrap_or(vec![AdpType::Uiso; label.len()]);
 
         let u11 = map
             .get_and_parse_all::<f64>("_atom_site_aniso_U_11")

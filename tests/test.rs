@@ -1,5 +1,5 @@
 use cif::Parser;
-use crystallib::{Atom, Atoms, Cell, Phase};
+use crystallib::{AdpType, Atom, Atoms, Cell, Phase};
 
 #[test]
 fn test() {
@@ -29,7 +29,7 @@ fn test() {
                 z: 0.0,
                 occupancy: 1.0,
                 multiplicity: 1.0,
-                adp_type: "Uiso".to_string(),
+                adp_type: AdpType::Uiso,
                 u_iso_or_equiv: 0.0049,
                 u11: 0.0,
                 u22: 0.0,
@@ -46,7 +46,7 @@ fn test() {
                 z: 0.5,
                 occupancy: 1.0,
                 multiplicity: 1.0,
-                adp_type: "Uiso".to_string(),
+                adp_type: AdpType::Uiso,
                 u_iso_or_equiv: 0.0087,
                 u11: 0.0,
                 u22: 0.0,
@@ -63,7 +63,7 @@ fn test() {
                 z: 0.5,
                 occupancy: 1.0,
                 multiplicity: 3.0,
-                adp_type: "Uiso".to_string(),
+                adp_type: AdpType::Uiso,
                 u_iso_or_equiv: 0.005,
                 u11: 0.0,
                 u22: 0.0,
