@@ -7,7 +7,7 @@ use fraction::ToPrimitive;
 use crate::parse::GetAndParse;
 use crate::parser::Cif;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum Axis {
     X,
@@ -25,7 +25,7 @@ pub struct SymmetryEquivTransformColumn {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct SymmetryEquivTransform([SymmetryEquivTransformColumn; 3]);
+pub struct SymmetryEquivTransform(pub [SymmetryEquivTransformColumn; 3]);
 
 impl std::ops::Deref for SymmetryEquivTransform {
     type Target = [SymmetryEquivTransformColumn; 3];
@@ -104,9 +104,9 @@ mod test_symmetry_equiv_transform {
 // https://www.iucr.org/__data/iucr/cifdic_html/1/cif_core.dic/Ispace_group_symop_operation_xyz.html
 // https://www.iucr.org/__data/iucr/cifdic_html/1/cif_core.dic/Isymmetry_equiv_pos_as_xyz.html
 // TODO: idk they seem identical? what's the difference? the name?
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct SymmetryEquivPosAsXYZ(Vec<SymmetryEquivTransform>);
+pub struct SymmetryEquivPosAsXYZ(pub Vec<SymmetryEquivTransform>);
 
 impl SymmetryEquivPosAsXYZ {
     pub fn generate_equiv_positions(&self, point: [f64; 3]) -> anyhow::Result<Vec<[f64; 3]>> {
