@@ -7,10 +7,14 @@ edition = "2021"
 anyhow = "1.0"
 crystallib = { git = "https://www.github.com/tectin0/crystallib.git", version = "0.1.0" }
 env_logger = "0.11"
+fraction = { version = "0.15.3", optional = true }
 log = "0.4"
 
 [features]
+default = ["symmetry"]
 serde = ["crystallib/serde"]
+symmetry = ["fraction"]
+
 
 [[example]]
 name = "phase_struct"

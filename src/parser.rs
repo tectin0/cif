@@ -374,11 +374,20 @@ impl<'a> Parser<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Cif(BTreeMap<String, Vec<String>>);
 
 impl Cif {
     pub fn try_into_phase(self) -> anyhow::Result<Phase> {
         Phase::try_from(&self).context("Failed to parse phase")
+    }
+
+    #[cfg(feature = "symmetry")]
+    pub fn symmetry_equiv_pos_as_xyz(
+        &self,
+    ) -> anyhow::Result<crate::symmetry::SymmetryEquivPosAsXYZ> {
+        crate::symmetry::SymmetryEquivPosAsXYZ::try_from(self)
+            .context("Failed to parse symmetry equiv")
     }
 }
 
