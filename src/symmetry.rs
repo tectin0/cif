@@ -36,8 +36,8 @@ impl std::ops::Deref for SymmetryEquivTransform {
 }
 
 impl SymmetryEquivTransform {
-    pub fn transform_point(&self, point: [f64; 3]) -> anyhow::Result<[f64; 3]> {
-        let mut new_point = [0.0; 3];
+    pub fn transform_point<T: num_traits::Float>(&self, point: [T; 3]) -> anyhow::Result<[T; 3]> {
+        let mut new_point = [T::zero(); 3];
 
         for (index, column) in self.0.iter().enumerate() {
             let value = match column.axis {
@@ -51,7 +51,11 @@ impl SymmetryEquivTransform {
                 .to_f64()
                 .context("Failed to convert translation to f64")?;
 
-            new_point[index] = value * column.sign as f64 + translation;
+            let translation = T::from(translation).context("Failed to convert translation to T")?;
+
+            let sign = T::from(column.sign).context("Failed to convert sign to T")?;
+
+            new_point[index] = value * sign + translation;
         }
 
         Ok(new_point)
@@ -109,7 +113,10 @@ mod test_symmetry_equiv_transform {
 pub struct SymmetryEquivPosAsXYZ(pub Vec<SymmetryEquivTransform>);
 
 impl SymmetryEquivPosAsXYZ {
-    pub fn generate_equiv_positions(&self, point: [f64; 3]) -> anyhow::Result<Vec<[f64; 3]>> {
+    pub fn generate_equiv_positions<T: num_traits::Float>(
+        &self,
+        point: [T; 3],
+    ) -> anyhow::Result<Vec<[T; 3]>> {
         let mut points = Vec::new();
 
         for transform in &self.0 {

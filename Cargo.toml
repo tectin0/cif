@@ -12,12 +12,13 @@ fraction = { version = "0.15.3", optional = true, features = [
     "with-serde-support",
 ] }
 log = "0.4"
+num-traits = { version = "0.2.19", optional = true }
 serde = { version = "1.0.217", features = ["derive"], optional = true }
 
 [features]
 default = ["symmetry"]
 serde = ["dep:serde", "crystallib/serde"]
-symmetry = ["dep:fraction", "fraction/serde"]
+symmetry = ["dep:fraction", "dep:num-traits", "fraction/serde"]
 
 
 [[example]]

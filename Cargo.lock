@@ -81,6 +81,7 @@ dependencies = [
  "env_logger",
  "fraction",
  "log",
+ "num-traits",
  "serde",
  "serde_json",
 ]
