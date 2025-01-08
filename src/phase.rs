@@ -1,7 +1,10 @@
 use anyhow::Context;
 use crystallib::{AdpType, Atom, Atoms, Cell, Phase};
 
-use crate::{parse::GetAndParse, parser::Cif};
+use crate::{
+    parse::GetAndParse,
+    parser::{Cif, DataBlock},
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -20,10 +23,10 @@ pub struct Uaniso {
     pub u23: f64,
 }
 
-impl TryFrom<&Cif> for Phase {
+impl TryFrom<&DataBlock> for Phase {
     type Error = anyhow::Error;
 
-    fn try_from(map: &Cif) -> anyhow::Result<Self> {
+    fn try_from(map: &DataBlock) -> anyhow::Result<Self> {
         Ok(Self {
             cell: Cell::try_from(map).context("Failed to parse cell")?,
             atoms: Atoms::try_from(map).context("Failed to parse atoms")?,
@@ -31,10 +34,10 @@ impl TryFrom<&Cif> for Phase {
     }
 }
 
-impl TryFrom<&Cif> for Cell {
+impl TryFrom<&DataBlock> for Cell {
     type Error = anyhow::Error;
 
-    fn try_from(map: &Cif) -> anyhow::Result<Self> {
+    fn try_from(map: &DataBlock) -> anyhow::Result<Self> {
         let values = [
             "_cell_length_a",
             "_cell_length_b",
@@ -48,6 +51,10 @@ impl TryFrom<&Cif> for Cell {
         .into_iter()
         .collect::<Result<Vec<f64>, _>>()?;
 
+        let space_group = map
+            .get_and_parse_first::<String>("_symmetry_space_group_name_H-M")
+            .unwrap_or(map.get_and_parse_first::<String>("_space_group_name_H-M_alt")?);
+
         Ok(Self {
             a: values[0],
             b: values[1],
@@ -56,15 +63,15 @@ impl TryFrom<&Cif> for Cell {
             beta: values[4],
             gamma: values[5],
             volume: values[6],
-            space_group: map.get_and_parse_first::<String>("_symmetry_space_group_name_H-M")?,
+            space_group,
         })
     }
 }
 
-impl TryFrom<&Cif> for Atoms {
+impl TryFrom<&DataBlock> for Atoms {
     type Error = anyhow::Error;
 
-    fn try_from(map: &Cif) -> anyhow::Result<Self> {
+    fn try_from(map: &DataBlock) -> anyhow::Result<Self> {
         let label = map.get_and_parse_all::<String>("_atom_site_label")?;
         let type_ = map.get_and_parse_all::<String>("_atom_site_type_symbol")?;
 
@@ -73,7 +80,9 @@ impl TryFrom<&Cif> for Atoms {
         let z = map.get_and_parse_all::<f64>("_atom_site_fract_z")?;
 
         let occupancy = map.get_and_parse_all::<f64>("_atom_site_occupancy")?;
-        let multiplicity = map.get_and_parse_all::<f64>("_atom_site_symmetry_multiplicity")?;
+        let multiplicity = map
+            .get_and_parse_all::<f64>("_atom_site_symmetry_multiplicity")
+            .unwrap_or(map.get_and_parse_all::<f64>("_atom_site_site_symmetry_multiplicity")?);
 
         let u_iso_or_equiv = map
             .get_and_parse_all::<f64>("_atom_site_U_iso_or_equiv")

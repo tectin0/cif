@@ -40,7 +40,8 @@ struct TempData {
 pub struct Parser<'a> {
     chunks: Box<dyn Iterator<Item = &'a [u8]> + 'a>,
     chunk: Option<&'a [u8]>,
-    data: BTreeMap<String, Vec<String>>,
+    data_blocks: BTreeMap<String, DataBlock>,
+    current_block: Option<String>,
     string_multiline: Vec<u8>,
     string_with_spaces: Vec<u8>,
     temp_data: TempData,
@@ -53,7 +54,7 @@ impl std::fmt::Debug for Parser<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Parser")
             .field("chunk", &self.chunk)
-            .field("data", &self.data)
+            .field("data", &self.data_blocks)
             .field("string_multiline", &self.string_multiline)
             .field("string_with_spaces", &self.string_with_spaces)
             .field("temp_data", &self.temp_data)
@@ -71,7 +72,8 @@ impl<'a> Parser<'a> {
         Self {
             chunks,
             chunk: None,
-            data: BTreeMap::new(),
+            data_blocks: BTreeMap::new(),
+            current_block: None,
             string_multiline: Vec::new(),
             string_with_spaces: Vec::new(),
             temp_data: TempData::default(),
@@ -84,7 +86,7 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Cif {
         log::debug!("Parsing CIF file");
 
-        self.skip_until_first_data_item();
+        self.skip_until_first_data_block();
 
         while self.chunk.is_some() {
             self.update_data_from_temp_data()
@@ -95,6 +97,7 @@ impl<'a> Parser<'a> {
                 .and_then(|()| self.check_is_comment())
                 .and_then(|()| self.chunk_trim_ascii_end())
                 .and_then(|()| self.check_is_empty())
+                .and_then(|()| self.handle_is_start_data_block())
                 .and_then(|()| self.check_is_start_or_end_of_multi_line_string())
                 .and_then(|()| self.handle_if_multi_line_string())
                 .and_then(|()| self.handle_multi_line_string_end())
@@ -121,7 +124,7 @@ impl<'a> Parser<'a> {
             log::warn!("Values: {:?}", self.temp_data.values);
         }
 
-        Cif(self.data.clone())
+        Cif(self.data_blocks.clone())
     }
 
     fn next(&mut self) {
@@ -130,20 +133,28 @@ impl<'a> Parser<'a> {
     }
 
     // TODO: a little bit convoluted
-    fn skip_until_first_data_item(&mut self) {
+    fn skip_until_first_data_block(&mut self) {
         self.next();
+        self.check_has_new_line_byte();
+        self.reset_flags_for_chunk();
 
-        let mut is_stop = false;
-
-        while !is_stop && self.chunk.is_some() {
-            self.check_is_data_item();
-            is_stop = self.local_flags.is_data_item;
-
-            if is_stop {
+        while self.chunk.is_some() {
+            if self.handle_is_start_data_block().is_none() {
+                self.next();
                 break;
             }
 
             self.next();
+            self.check_has_new_line_byte();
+            self.reset_flags_for_chunk();
+        }
+    }
+
+    fn current_block(&mut self) -> Option<&mut DataBlock> {
+        if let Some(block) = &self.current_block {
+            return Some(self.data_blocks.get_mut(block.as_str()).unwrap());
+        } else {
+            None
         }
     }
 
@@ -333,9 +344,23 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    fn check_is_data_name(&mut self) -> Option<()> {
-        if self.global_flags.is_new_line {
-            if self.chunk.unwrap().starts_with(b"data_") {}
+    fn handle_is_start_data_block(&mut self) -> Option<()> {
+        if self.global_flags.is_new_line && self.chunk.unwrap().starts_with(b"data_") {
+            log::debug!(
+                "Found new data block: {:?}",
+                String::from_utf8_lossy(self.chunk.unwrap())
+            );
+
+            let string = String::from_utf8_lossy(self.chunk.unwrap()).to_string();
+
+            let data_block_name = string.trim_start_matches("data_").trim();
+
+            self.data_blocks
+                .insert(data_block_name.to_string(), DataBlock::default());
+
+            self.current_block = Some(data_block_name.to_string());
+
+            return None;
         }
 
         Some(())
@@ -361,7 +386,9 @@ impl<'a> Parser<'a> {
                 .iter()
                 .zip(self.temp_data.values.iter())
             {
-                self.data
+                self.data_blocks
+                    .get_mut(self.current_block.as_ref().unwrap().as_str())
+                    .unwrap()
                     .entry(name.clone())
                     .or_default()
                     .push(value.clone());
@@ -382,12 +409,12 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Cif(BTreeMap<String, Vec<String>>);
+#[derive(Debug, Default, Clone)]
+pub struct DataBlock(pub BTreeMap<String, Vec<String>>);
 
-impl Cif {
-    pub fn try_into_phase(self) -> anyhow::Result<Phase> {
-        Phase::try_from(&self).context("Failed to parse phase")
+impl DataBlock {
+    pub fn try_into_phase(&self) -> anyhow::Result<Phase> {
+        Phase::try_from(self).context("Failed to parse phase")
     }
 
     #[cfg(feature = "symmetry")]
@@ -399,8 +426,27 @@ impl Cif {
     }
 }
 
-impl std::ops::Deref for Cif {
+impl std::ops::Deref for DataBlock {
     type Target = BTreeMap<String, Vec<String>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for DataBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Cif(BTreeMap<String, DataBlock>);
+
+impl Cif {}
+
+impl std::ops::Deref for Cif {
+    type Target = BTreeMap<String, DataBlock>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

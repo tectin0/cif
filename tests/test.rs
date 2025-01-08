@@ -7,7 +7,7 @@ fn test() {
 
     let data = Parser::new(&bytes).parse();
 
-    let phase: Phase = (&data).try_into().unwrap();
+    let phase: Phase = data.first_key_value().unwrap().1.try_into().unwrap();
 
     let expected_phase = Phase {
         cell: Cell {

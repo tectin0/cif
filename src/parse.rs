@@ -25,12 +25,16 @@ impl GetAndParse for BTreeMap<String, Vec<String>> {
         Result<T, <T as FromStr>::Err>: Context<T, <T as FromStr>::Err>,
         <T as FromStr>::Err: 'static,
     {
-        self.get(key)
+        let value = self
+            .get(key)
             .context(format!("Key: `{}` does not exist", key))?
             .first()
-            .context(format!("Key: `{}` does not have a value", key))?
-            .parse_without_uncertainty::<T>()
-            .context(format!("Failed to parse value for key: `{}`", key))
+            .context(format!("Key: `{}` does not have a value", key))?;
+
+        value.parse_without_uncertainty::<T>().context(format!(
+            "Failed to parse value `{}` for key: `{}`",
+            value, key
+        ))
     }
 
     fn get_and_parse_all<T: FromStr>(&self, key: &str) -> anyhow::Result<Vec<T>>
@@ -44,9 +48,10 @@ impl GetAndParse for BTreeMap<String, Vec<String>> {
             .context(format!("Key: `{}` does not exist", key))?
             .iter()
             .map(|value| {
-                value
-                    .parse_without_uncertainty::<T>()
-                    .context(format!("Failed to parse value for key: `{}`", key))
+                value.parse_without_uncertainty::<T>().context(format!(
+                    "Failed to parse value `{}` for key: `{}`",
+                    value, key
+                ))
             })
             .collect()
     }

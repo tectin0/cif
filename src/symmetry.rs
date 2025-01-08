@@ -6,6 +6,7 @@ use fraction::ToPrimitive;
 
 use crate::parse::GetAndParse;
 use crate::parser::Cif;
+use crate::parser::DataBlock;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -130,10 +131,10 @@ impl SymmetryEquivPosAsXYZ {
     }
 }
 
-impl TryFrom<&Cif> for SymmetryEquivPosAsXYZ {
+impl TryFrom<&DataBlock> for SymmetryEquivPosAsXYZ {
     type Error = anyhow::Error;
 
-    fn try_from(map: &Cif) -> anyhow::Result<Self> {
+    fn try_from(map: &DataBlock) -> anyhow::Result<Self> {
         let raw = map
             .get_and_parse_all::<String>("_space_group_symop_operation_xyz")
             .unwrap_or(map.get_and_parse_all::<String>("_symmetry_equiv_pos_as_xyz")?);
@@ -242,7 +243,7 @@ mod test_symmetry_equiv_pos_as_xyz {
 
         let data = Parser::new(&bytes).parse();
 
-        let sym: SymmetryEquivPosAsXYZ = (&data).try_into().unwrap();
+        let sym: SymmetryEquivPosAsXYZ = data.first_key_value().unwrap().1.try_into().unwrap();
 
         let expected_first = SymmetryEquivTransformColumn {
             axis: Axis::Z,
@@ -272,9 +273,9 @@ mod test_symmetry_equiv_pos_as_xyz {
 
         let data = Parser::new(&bytes).parse();
 
-        let phase = data.clone().try_into_phase().unwrap();
+        let phase = data.first_key_value().unwrap().1.try_into_phase().unwrap();
 
-        let sym: SymmetryEquivPosAsXYZ = (&data).try_into().unwrap();
+        let sym: SymmetryEquivPosAsXYZ = data.first_key_value().unwrap().1.try_into().unwrap();
 
         let point = [phase.atoms[1].x, phase.atoms[1].y, phase.atoms[1].z];
 
