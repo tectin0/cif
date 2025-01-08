@@ -5,7 +5,6 @@ use fraction::GenericFraction;
 use fraction::ToPrimitive;
 
 use crate::parse::GetAndParse;
-use crate::parser::Cif;
 use crate::parser::DataBlock;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,7 +162,7 @@ impl TryFrom<&str> for SymmetryEquivTransformColumn {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let parts = TranslationSplit::new(value.trim()).into_iter();
+        let parts = TranslationSplit::new(value.trim());
 
         let mut axis: Option<Axis> = None;
         let mut sign: Option<i8> = None;
@@ -338,6 +337,6 @@ impl<'a> Iterator for TranslationSplit<'a> {
         };
         let chunk = &self.s[self.chunk_start..chunk_end];
         self.chunk_start = chunk_end;
-        return Some(chunk);
+        Some(chunk)
     }
 }

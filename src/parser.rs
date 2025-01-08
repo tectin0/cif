@@ -150,14 +150,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn current_block(&mut self) -> Option<&mut DataBlock> {
-        if let Some(block) = &self.current_block {
-            return Some(self.data_blocks.get_mut(block.as_str()).unwrap());
-        } else {
-            None
-        }
-    }
-
     fn check_is_empty(&mut self) -> Option<()> {
         (!self.chunk.unwrap().is_empty()).then_some(())
     }

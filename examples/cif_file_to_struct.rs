@@ -12,7 +12,7 @@ fn main() {
 
     dbg!(&data.keys().collect::<Vec<_>>());
 
-    let phase: Phase = data.iter().nth(0).unwrap().1.try_into().unwrap();
+    let phase: Phase = data.iter().next().unwrap().1.try_into().unwrap();
 
     dbg!(phase);
 }

@@ -3,7 +3,7 @@ use crystallib::{AdpType, Atom, Atoms, Cell, Phase};
 
 use crate::{
     parse::GetAndParse,
-    parser::{Cif, DataBlock},
+    parser::DataBlock,
 };
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
