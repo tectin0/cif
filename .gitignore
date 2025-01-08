@@ -1,1 +1,5 @@
 /target
+
+*.cif
+!BaTiO3.cif
+!diamond.cif

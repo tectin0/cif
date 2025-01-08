@@ -28,7 +28,7 @@ impl Default for GlobalFlags {
 struct LocalFlags {
     has_new_line_byte: bool,
     is_loop_chunk: bool,
-    is_data_chunk: bool,
+    is_data_item: bool,
 }
 
 #[derive(Default, Debug)]
@@ -84,7 +84,7 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Cif {
         log::debug!("Parsing CIF file");
 
-        self.skip_until_first_data_chunk();
+        self.skip_until_first_data_item();
 
         while self.chunk.is_some() {
             self.update_data_from_temp_data()
@@ -101,9 +101,9 @@ impl<'a> Parser<'a> {
                 .and_then(|()| self.check_is_string_with_spaces())
                 .and_then(|()| self.handle_if_string_with_spaces())
                 .and_then(|()| self.check_loop_byte())
-                .and_then(|()| self.check_is_data_chunk())
+                .and_then(|()| self.check_is_data_item())
                 .and_then(|()| self.check_loop_end())
-                .and_then(|()| self.handle_if_data_chunk())
+                .and_then(|()| self.handle_if_data_item())
                 .and_then(|()| self.handle_if_value_chunk())
                 .unwrap_or(());
 
@@ -130,14 +130,14 @@ impl<'a> Parser<'a> {
     }
 
     // TODO: a little bit convoluted
-    fn skip_until_first_data_chunk(&mut self) {
+    fn skip_until_first_data_item(&mut self) {
         self.next();
 
         let mut is_stop = false;
 
         while !is_stop && self.chunk.is_some() {
-            self.check_is_data_chunk();
-            is_stop = self.local_flags.is_data_chunk;
+            self.check_is_data_item();
+            is_stop = self.local_flags.is_data_item;
 
             if is_stop {
                 break;
@@ -302,7 +302,7 @@ impl<'a> Parser<'a> {
 
     fn check_loop_end(&mut self) -> Option<()> {
         if self.global_flags.is_loop
-            && self.local_flags.is_data_chunk
+            && self.local_flags.is_data_item
             && self.values_cleared_this_loop > 0
         {
             self.global_flags.is_loop = false;
@@ -313,16 +313,16 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    fn check_is_data_chunk(&mut self) -> Option<()> {
+    fn check_is_data_item(&mut self) -> Option<()> {
         if self.chunk.unwrap().starts_with(b"_") {
-            self.local_flags.is_data_chunk = true;
+            self.local_flags.is_data_item = true;
         }
 
         Some(())
     }
 
-    fn handle_if_data_chunk(&mut self) -> Option<()> {
-        if self.local_flags.is_data_chunk {
+    fn handle_if_data_item(&mut self) -> Option<()> {
+        if self.local_flags.is_data_item {
             let string = String::from_utf8_lossy(self.chunk.unwrap()).to_string();
 
             self.temp_data.names.push(string);
@@ -333,8 +333,16 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
+    fn check_is_data_name(&mut self) -> Option<()> {
+        if self.global_flags.is_new_line {
+            if self.chunk.unwrap().starts_with(b"data_") {}
+        }
+
+        Some(())
+    }
+
     fn handle_if_value_chunk(&mut self) -> Option<()> {
-        if !self.local_flags.is_data_chunk && !self.local_flags.is_loop_chunk {
+        if !self.local_flags.is_data_item && !self.local_flags.is_loop_chunk {
             let string = String::from_utf8_lossy(self.chunk.unwrap()).to_string();
 
             self.temp_data.values.push(string);
