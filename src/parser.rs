@@ -194,7 +194,7 @@ impl<'a> Parser<'a> {
     fn chunk_trim_ascii_end(&mut self) -> Option<()> {
         self.chunk = Some(self.chunk.unwrap().trim_ascii_end());
 
-        log::debug!("{}", String::from_utf8_lossy(self.chunk.unwrap()));
+        log::trace!("{}", String::from_utf8_lossy(self.chunk.unwrap()));
 
         Some(())
     }
