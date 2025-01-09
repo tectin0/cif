@@ -1,10 +1,7 @@
 use anyhow::Context;
-use crystallib::{AdpType, Atom, Atoms, Cell, Phase};
+use crystallib::{AdpType, Atom, Atoms, Cell, IntoSpaceGroupNumber, IntoSpaceGroupSymbol, Phase};
 
-use crate::{
-    parse::GetAndParse,
-    parser::DataBlock,
-};
+use crate::{parse::GetAndParse, parser::DataBlock};
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -51,9 +48,52 @@ impl TryFrom<&DataBlock> for Cell {
         .into_iter()
         .collect::<Result<Vec<f64>, _>>()?;
 
-        let space_group = map
+        let mut space_group = map
             .get_and_parse_first::<String>("_symmetry_space_group_name_H-M")
-            .unwrap_or(map.get_and_parse_first::<String>("_space_group_name_H-M_alt")?);
+            .ok();
+
+        if space_group.is_none() {
+            space_group = map
+                .get_and_parse_first::<String>("_space_group_name_H-M_alt")
+                .ok();
+        }
+
+        let mut space_group_number = map
+            .get_and_parse_first::<u8>("_symmetry_Int_Tables_number")
+            .ok();
+
+        if space_group_number.is_none() {
+            space_group_number = map.get_and_parse_first::<u8>("_space_group_IT_number").ok();
+        }
+
+        if space_group_number.is_none() && space_group.is_none() {
+            return Err(anyhow::anyhow!(
+                "Could not find space group symbol or number in the data block"
+            ));
+        }
+
+        if space_group_number.is_none() {
+            space_group_number = Some(
+                space_group
+                    .clone()
+                    .unwrap()
+                    .into_space_group_number()
+                    .context("Failed to convert space group symbol to space group number")?,
+            );
+        }
+
+        if space_group.is_none() {
+            space_group = Some(
+                space_group_number
+                    .unwrap()
+                    .into_space_group_symbol()
+                    .context("Failed to convert space group number to space group name")?
+                    .to_string(),
+            );
+        }
+
+        let space_group = space_group.unwrap();
+        let space_group_number = space_group_number.unwrap();
 
         Ok(Self {
             a: values[0],
@@ -64,6 +104,7 @@ impl TryFrom<&DataBlock> for Cell {
             gamma: values[5],
             volume: values[6],
             space_group,
+            space_group_number,
         })
     }
 }

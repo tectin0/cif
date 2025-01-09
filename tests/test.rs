@@ -19,6 +19,7 @@ fn test() {
             gamma: 90.0,
             volume: 64.45,
             space_group: "P m -3 m".to_string(),
+            space_group_number: 221,
         },
         atoms: Atoms(vec![
             Atom {
