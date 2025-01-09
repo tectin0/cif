@@ -115,7 +115,7 @@ checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 [[package]]
 name = "crystallib"
 version = "0.1.0"
-source = "git+https://www.github.com/tectin0/crystallib.git#906f92ea3aae00c545ed98783cf387bf4fad5c7f"
+source = "git+https://www.github.com/tectin0/crystallib.git#2b9239f1ad5fb8d038f76fb6ab2f547a0365f117"
 dependencies = [
  "cgmath",
  "serde",
