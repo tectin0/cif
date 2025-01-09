@@ -167,7 +167,7 @@ impl TryFrom<&DataBlock> for Atoms {
                 y: y[index],
                 z: z[index],
                 occupancy: occupancy[index],
-                multiplicity: multiplicity[index],
+                multiplicity: multiplicity.as_ref().map(|m| m[index]),
                 adp_type: adp_type[index].clone(),
                 u_iso_or_equiv: u_iso_or_equiv.get(index).cloned().unwrap_or_default(),
                 u11: u11.get(index).cloned().unwrap_or_default(),
