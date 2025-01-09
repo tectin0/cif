@@ -134,9 +134,13 @@ impl TryFrom<&DataBlock> for SymmetryEquivPosAsXYZ {
     type Error = anyhow::Error;
 
     fn try_from(map: &DataBlock) -> anyhow::Result<Self> {
-        let raw = map
-            .get_and_parse_all::<String>("_space_group_symop_operation_xyz")
-            .unwrap_or(map.get_and_parse_all::<String>("_symmetry_equiv_pos_as_xyz")?);
+        let mut raw = map.get_and_parse_all::<String>("_space_group_symop_operation_xyz");
+
+        if raw.is_err() {
+            raw = map.get_and_parse_all::<String>("_symmetry_equiv_pos_as_xyz");
+        }
+
+        let raw = raw.context("Failed to get symmetry equiv pos")?;
 
         let mut symmetry_equiv_pos_as_xyz = Vec::new();
 

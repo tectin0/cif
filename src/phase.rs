@@ -121,9 +121,14 @@ impl TryFrom<&DataBlock> for Atoms {
         let z = map.get_and_parse_all::<f64>("_atom_site_fract_z")?;
 
         let occupancy = map.get_and_parse_all::<f64>("_atom_site_occupancy")?;
-        let multiplicity = map
-            .get_and_parse_all::<f64>("_atom_site_symmetry_multiplicity")
-            .unwrap_or(map.get_and_parse_all::<f64>("_atom_site_site_symmetry_multiplicity")?);
+
+        let mut multiplicity = map.get_and_parse_all::<f64>("_atom_site_symmetry_multiplicity");
+
+        if multiplicity.is_err() {
+            multiplicity = map.get_and_parse_all::<f64>("_atom_site_site_symmetry_multiplicity");
+        }
+
+        let multiplicity = multiplicity.context("Failed to parse multiplicity")?;
 
         let u_iso_or_equiv = map
             .get_and_parse_all::<f64>("_atom_site_U_iso_or_equiv")
