@@ -132,7 +132,13 @@ impl TryFrom<&DataBlock> for Atoms {
 
         let u_iso_or_equiv = map
             .get_and_parse_all::<f64>("_atom_site_U_iso_or_equiv")
-            .unwrap_or_default();
+            .unwrap_or_else(|_| {
+                map.get_and_parse_all::<f64>("_atom_site_B_iso_or_equiv")
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|b_iso| convert_b_iso_to_u_iso(b_iso))
+                    .collect::<Vec<f64>>()
+            });
 
         let adp_type = map
             .get_and_parse_all::<AdpType>("_atom_site_adp_type")
@@ -182,5 +188,50 @@ impl TryFrom<&DataBlock> for Atoms {
         }
 
         Ok(Self(atoms))
+    }
+}
+
+/// https://www.iucr.org/__data/iucr/cifdic_html/1/cif_core.dic/Iatom_site_B_iso_or_equiv.html
+fn convert_b_iso_to_u_iso(b_iso: f64) -> f64 {
+    b_iso / (8.0 * std::f64::consts::PI.powi(2))
+}
+
+#[cfg(test)]
+mod test {
+    use crate::Parser;
+
+    #[test]
+    fn test_b_iso_to_u_iso() {
+        let bytes = std::fs::read(r"assets\NiO_Fm3m.cif").unwrap();
+
+        let data = Parser::new(&bytes).parse();
+
+        let data_block = data.get("9866-ICSD").unwrap();
+
+        let b_isos = data_block
+            .get("_atom_site_B_iso_or_equiv")
+            .unwrap()
+            .into_iter()
+            .map(|b_iso| b_iso.parse::<f64>().unwrap())
+            .collect::<Vec<f64>>();
+
+        let expected_b_isos = vec![0.414, 0.61];
+
+        assert!(b_isos[0] - expected_b_isos[0] < 1e-3);
+        assert!(b_isos[1] - expected_b_isos[1] < 1e-3);
+
+        let phase = data_block.try_into_phase().unwrap();
+
+        let atoms = phase
+            .atoms
+            .to_vec()
+            .iter()
+            .map(|atom| atom.u_iso_or_equiv)
+            .collect::<Vec<f64>>();
+
+        let expected_u_isos = vec![0.00524, 0.00773];
+
+        assert!(atoms[0] - expected_u_isos[0] < 1e-3);
+        assert!(atoms[1] - expected_u_isos[1] < 1e-3);
     }
 }

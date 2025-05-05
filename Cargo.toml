@@ -1,11 +1,13 @@
 [package]
 name = "cif"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-crystallib = { git = "https://www.github.com/tectin0/crystallib.git", version = "0.1.0", features = ["symmetry"] }
+crystallib = { git = "https://www.github.com/tectin0/crystallib.git", version = "0.1.0", features = [
+    "symmetry",
+] }
 env_logger = "0.11"
 fraction = { version = "0.15.3", optional = true, features = [
     "serde",
