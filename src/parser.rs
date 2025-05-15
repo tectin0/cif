@@ -435,7 +435,11 @@ impl std::ops::DerefMut for DataBlock {
 #[derive(Debug, Clone)]
 pub struct Cif(BTreeMap<String, DataBlock>);
 
-impl Cif {}
+impl Cif {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        read_cif(bytes)
+    }
+}
 
 impl std::ops::Deref for Cif {
     type Target = BTreeMap<String, DataBlock>;
