@@ -461,21 +461,18 @@ fn split_input_into_chunks(bytes: &[u8]) -> impl Iterator<Item = &'_ [u8]> {
         .filter(|&chunk| !chunk.is_empty() && chunk != [b' '] && chunk != [b'\t'])
 }
 
-pub fn try_phase_from_cif_bytes(bytes: &[u8]) -> Option<Phase> {
+pub fn try_phase_from_cif_bytes(bytes: &[u8]) -> Option<(String, Phase)> {
     let cif = read_cif(bytes);
 
-    let phase = cif
-        .iter()
-        .fold(None, |acc: Option<Phase>, (_name, data_block)| {
-            if let Some(phase) = acc {
-                Some(phase)
+    cif.iter()
+        .fold(None, |acc: Option<(String, Phase)>, (name, data_block)| {
+            if let Some((name, phase)) = acc {
+                return Some((name, phase));
             } else {
                 match data_block.try_into_phase() {
-                    Ok(phase) => Some(phase),
+                    Ok(phase) => Some((name.clone(), phase)),
                     Err(_) => None,
                 }
             }
-        });
-
-    phase
+        })
 }
