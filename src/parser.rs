@@ -118,6 +118,8 @@ impl<'a> Parser<'a> {
             self.next();
         }
 
+        self.update_data_from_temp_data();
+
         if !self.temp_data.values.is_empty() {
             log::warn!("Parsing was not finished correctly. Some temp data could not be added to the data map.");
             log::warn!("Names: {:?}", self.temp_data.names);
