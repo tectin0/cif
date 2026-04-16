@@ -339,6 +339,10 @@ impl<'a> Parser<'a> {
     }
 
     fn handle_is_start_data_block(&mut self) -> Option<()> {
+        if self.global_flags.is_string_multiline {
+            return Some(());
+        }
+
         if self.global_flags.is_new_line && self.chunk.unwrap().starts_with(b"data_") {
             log::debug!(
                 "Found new data block: {:?}",
