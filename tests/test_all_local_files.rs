@@ -21,6 +21,10 @@ fn test_parse_all_local_files() {
         );
 
         for (name, block) in cif.iter() {
+            if name == "global" {
+                continue;
+            }
+
             let phase: Phase = match block.try_into_phase() {
                 Ok(p) => p,
                 Err(e) => {
