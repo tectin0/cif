@@ -3,3 +3,5 @@
 *.cif
 !BaTiO3.cif
 !diamond.cif
+
+/tests/files

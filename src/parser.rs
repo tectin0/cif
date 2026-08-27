@@ -268,27 +268,26 @@ impl<'a> Parser<'a> {
             self.string_with_spaces.extend(string_chunk);
             self.string_with_spaces.push(b' ');
 
-            match self.chunk.unwrap().last() == Some(&b'\'')
-                || self.chunk.unwrap().last() == Some(&b'\"')
-            {
-                true => {
-                    self.temp_data.values.push(
-                        String::from_utf8_lossy(
-                            self.string_with_spaces.strip_suffix(b" ").unwrap(),
-                        )
-                        .to_string(),
-                    );
+            let chunk = self.chunk.unwrap();
+            let last_is_quote =
+                chunk.last() == Some(&b'\'') || chunk.last() == Some(&b'\"');
+            let has_accumulated_content = self.string_with_spaces.len() > 1;
+            let chunk_is_multi_char = chunk.len() > 1;
 
-                    self.global_flags.is_string_with_spaces = false;
+            if last_is_quote && (has_accumulated_content || chunk_is_multi_char) {
+                self.temp_data.values.push(
+                    String::from_utf8_lossy(
+                        self.string_with_spaces.strip_suffix(b" ").unwrap(),
+                    )
+                    .to_string(),
+                );
 
-                    self.string_with_spaces.clear();
+                self.global_flags.is_string_with_spaces = false;
 
-                    return None;
-                }
-                false => {
-                    return None;
-                }
+                self.string_with_spaces.clear();
             }
+
+            return None;
         }
 
         Some(())
