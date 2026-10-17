@@ -280,7 +280,11 @@ mod test_symmetry_equiv_pos_as_xyz {
 
         let sym: SymmetryEquivPosAsXYZ = data.first_key_value().unwrap().1.try_into().unwrap();
 
-        let point = [phase.atoms[1].x, phase.atoms[1].y, phase.atoms[1].z];
+        let point = [
+            phase.atoms[1].x.value,
+            phase.atoms[1].y.value,
+            phase.atoms[1].z.value,
+        ];
 
         let points = sym.generate_equiv_positions(point).unwrap();
 

@@ -1,5 +1,7 @@
 use anyhow::Context;
-use crystallib::{AdpType, Atom, Atoms, Cell, IntoSpaceGroupNumber, IntoSpaceGroupSymbol, Phase};
+use crystallib::{
+    AdpType, Atom, Atoms, Cell, IntoSpaceGroupNumber, IntoSpaceGroupSymbol, Measured, Phase,
+};
 
 use crate::{parse::GetAndParse, parser::DataBlock};
 
@@ -44,9 +46,9 @@ impl TryFrom<&DataBlock> for Cell {
             "_cell_angle_gamma",
             "_cell_volume",
         ]
-        .map(|key| map.get_and_parse_first::<f64>(key))
+        .map(|key| map.get_measured_first(key))
         .into_iter()
-        .collect::<Result<Vec<f64>, _>>()?;
+        .collect::<Result<Vec<Measured>, _>>()?;
 
         let mut space_group = map
             .get_and_parse_first::<String>("_symmetry_space_group_name_H-M")
@@ -116,11 +118,11 @@ impl TryFrom<&DataBlock> for Atoms {
         let label = map.get_and_parse_all::<String>("_atom_site_label")?;
         let type_ = map.get_and_parse_all::<String>("_atom_site_type_symbol")?;
 
-        let x = map.get_and_parse_all::<f64>("_atom_site_fract_x")?;
-        let y = map.get_and_parse_all::<f64>("_atom_site_fract_y")?;
-        let z = map.get_and_parse_all::<f64>("_atom_site_fract_z")?;
+        let x = map.get_measured_all("_atom_site_fract_x")?;
+        let y = map.get_measured_all("_atom_site_fract_y")?;
+        let z = map.get_measured_all("_atom_site_fract_z")?;
 
-        let occupancy = map.get_and_parse_all::<f64>("_atom_site_occupancy")?;
+        let occupancy = map.get_measured_all("_atom_site_occupancy")?;
 
         let mut multiplicity = map.get_and_parse_all::<f64>("_atom_site_symmetry_multiplicity");
 
@@ -131,13 +133,13 @@ impl TryFrom<&DataBlock> for Atoms {
         let multiplicity = multiplicity.ok();
 
         let u_iso_or_equiv = map
-            .get_and_parse_all::<f64>("_atom_site_U_iso_or_equiv")
+            .get_measured_all("_atom_site_U_iso_or_equiv")
             .unwrap_or_else(|_| {
-                map.get_and_parse_all::<f64>("_atom_site_B_iso_or_equiv")
+                map.get_measured_all("_atom_site_B_iso_or_equiv")
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|b_iso| convert_b_iso_to_u_iso(b_iso))
-                    .collect::<Vec<f64>>()
+                    .map(convert_b_iso_to_u_iso)
+                    .collect()
             });
 
         let adp_type = map
@@ -145,22 +147,22 @@ impl TryFrom<&DataBlock> for Atoms {
             .unwrap_or(vec![AdpType::Uiso; label.len()]);
 
         let u11 = map
-            .get_and_parse_all::<f64>("_atom_site_aniso_U_11")
+            .get_measured_all("_atom_site_aniso_U_11")
             .unwrap_or_default();
         let u22 = map
-            .get_and_parse_all::<f64>("_atom_site_aniso_U_22")
+            .get_measured_all("_atom_site_aniso_U_22")
             .unwrap_or_default();
         let u33 = map
-            .get_and_parse_all::<f64>("_atom_site_aniso_U_33")
+            .get_measured_all("_atom_site_aniso_U_33")
             .unwrap_or_default();
         let u12 = map
-            .get_and_parse_all::<f64>("_atom_site_aniso_U_12")
+            .get_measured_all("_atom_site_aniso_U_12")
             .unwrap_or_default();
         let u13 = map
-            .get_and_parse_all::<f64>("_atom_site_aniso_U_13")
+            .get_measured_all("_atom_site_aniso_U_13")
             .unwrap_or_default();
         let u23 = map
-            .get_and_parse_all::<f64>("_atom_site_aniso_U_23")
+            .get_measured_all("_atom_site_aniso_U_23")
             .unwrap_or_default();
 
         let mut atoms = Vec::new();
@@ -192,8 +194,8 @@ impl TryFrom<&DataBlock> for Atoms {
 }
 
 /// https://www.iucr.org/__data/iucr/cifdic_html/1/cif_core.dic/Iatom_site_B_iso_or_equiv.html
-fn convert_b_iso_to_u_iso(b_iso: f64) -> f64 {
-    b_iso / (8.0 * std::f64::consts::PI.powi(2))
+fn convert_b_iso_to_u_iso(b_iso: Measured) -> Measured {
+    b_iso.scaled(1.0 / (8.0 * std::f64::consts::PI.powi(2)))
 }
 
 #[cfg(test)]
@@ -226,7 +228,7 @@ mod test {
             .atoms
             .to_vec()
             .iter()
-            .map(|atom| atom.u_iso_or_equiv)
+            .map(|atom| atom.u_iso_or_equiv.value)
             .collect::<Vec<f64>>();
 
         let expected_u_isos = vec![0.00524, 0.00773];
