@@ -3,6 +3,11 @@ name = "cif"
 version = "0.2.0"
 edition = "2021"
 description = "Reads and writes CIF 1.1 documents without losing anything they hold"
+license = "GPL-3.0-only"
+repository = "https://github.com/tectin0/cif"
+readme = "README.md"
+keywords = ["cif", "crystallography", "parser", "iucr"]
+categories = ["parser-implementations", "science"]
 
 [dependencies]
 serde = { version = "1.0.217", features = ["derive"], optional = true }
