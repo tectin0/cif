@@ -1,12 +1,17 @@
-//! CIF 1.1's syntax, case by case.
+//! CIF 1.1's and 2.0's syntax, case by case.
 
-use cif::{read, Item, Style, Value};
+use cif::{read, Item, Style, TableEntry, Value, Version};
 
 fn value(text: &str, style: Style) -> Value {
-    Value {
+    Value::Text {
         text: text.into(),
         style,
     }
+}
+
+/// The text of the value of `tag` in the first block of `cif`.
+fn text<'a>(cif: &'a cif::Cif, tag: &str) -> &'a str {
+    cif.blocks[0].value(tag).and_then(Value::text).unwrap()
 }
 
 #[test]
@@ -17,6 +22,7 @@ fn values_keep_the_way_they_were_written() {
     .unwrap();
     let block = &cif.blocks[0];
 
+    assert_eq!(cif.version, Version::V1_1);
     assert_eq!(block.value("_a"), Some(&value("bare", Style::Bare)));
     assert_eq!(block.value("_b"), Some(&value("single quoted", Style::SingleQuoted)));
     assert_eq!(block.value("_c"), Some(&value("double quoted", Style::DoubleQuoted)));
@@ -29,24 +35,22 @@ fn values_keep_the_way_they_were_written() {
 }
 
 #[test]
-fn a_quote_ends_a_value_only_before_whitespace() {
+fn in_cif_1_1_a_quote_ends_a_value_only_before_whitespace() {
     let cif = read("data_x\n_a 'O'Brien' _b 'it''s'\n").unwrap();
-    let block = &cif.blocks[0];
 
-    assert_eq!(block.value("_a").unwrap().text, "O'Brien");
-    assert_eq!(block.value("_b").unwrap().text, "it''s");
+    assert_eq!(text(&cif, "_a"), "O'Brien");
+    assert_eq!(text(&cif, "_b"), "it''s");
 }
 
 #[test]
 fn a_hash_starts_a_comment_only_outside_values() {
     let cif = read("data_x\n_a 'no # comment' # a comment\n_b\n;# not one either\n;\n_c a#b\n")
         .unwrap();
-    let block = &cif.blocks[0];
 
-    assert_eq!(block.value("_a").unwrap().text, "no # comment");
-    assert_eq!(block.items[1], Item::Comment(" a comment".into()));
-    assert_eq!(block.value("_b").unwrap().text, "# not one either");
-    assert_eq!(block.value("_c").unwrap().text, "a#b");
+    assert_eq!(text(&cif, "_a"), "no # comment");
+    assert_eq!(cif.blocks[0].items[1], Item::Comment(" a comment".into()));
+    assert_eq!(text(&cif, "_b"), "# not one either");
+    assert_eq!(text(&cif, "_c"), "a#b");
 }
 
 #[test]
@@ -56,7 +60,7 @@ fn tags_and_reserved_words_ignore_case() {
 
     assert_eq!(block.name, "x");
     assert!(block.loop_with("_atom_site_label").is_some());
-    assert_eq!(block.value("_cell_length_a").unwrap().text, "1.0");
+    assert_eq!(text(&cif, "_cell_length_a"), "1.0");
     assert!(cif.block("X").is_some());
 }
 
@@ -91,8 +95,8 @@ fn save_frames_and_comments_stay_where_they_were_written() {
 fn crlf_lines_and_a_byte_order_mark_read_as_plain_lines() {
     let cif = read("\u{feff}data_x\r\n_a 1\r\n_b\r\n;one\r\ntwo\r\n;\r\n").unwrap();
 
-    assert_eq!(cif.blocks[0].value("_a").unwrap().text, "1");
-    assert_eq!(cif.blocks[0].value("_b").unwrap().text, "one\ntwo");
+    assert_eq!(text(&cif, "_a"), "1");
+    assert_eq!(text(&cif, "_b"), "one\ntwo");
 }
 
 #[test]
@@ -101,6 +105,80 @@ fn several_data_blocks_keep_their_order_and_their_names() {
 
     let names: Vec<_> = cif.blocks.iter().map(|b| b.name.as_str()).collect();
     assert_eq!(names, ["b", "a", "b"]);
+}
+
+#[test]
+fn a_cif_2_0_document_is_read_with_its_lists_tables_and_triple_quoted_text() {
+    let cif = read(
+        "#\\#CIF_2.0\ndata_x\n_list [1 'two' [3 ?]]\n_table {'a':1 \"b\": [x y]}\n_long '''one\ntwo'''\n_empty []\n",
+    )
+    .unwrap();
+    let block = &cif.blocks[0];
+
+    assert_eq!(cif.version, Version::V2_0);
+    assert!(cif.comments.is_empty(), "the magic line is the version");
+    assert_eq!(
+        block.value("_list"),
+        Some(&Value::List(vec![
+            Value::new("1"),
+            value("two", Style::SingleQuoted),
+            Value::List(vec![Value::new("3"), Value::unknown()]),
+        ]))
+    );
+    assert_eq!(
+        block.value("_table"),
+        Some(&Value::Table(vec![
+            TableEntry {
+                key: "a".into(),
+                key_style: Style::SingleQuoted,
+                value: Value::new("1"),
+            },
+            TableEntry {
+                key: "b".into(),
+                key_style: Style::DoubleQuoted,
+                value: Value::List(vec![Value::new("x"), Value::new("y")]),
+            },
+        ]))
+    );
+    assert_eq!(block.value("_long"), Some(&value("one\ntwo", Style::TripleSingleQuoted)));
+    assert_eq!(block.value("_empty"), Some(&Value::List(Vec::new())));
+}
+
+#[test]
+fn in_cif_2_0_a_quote_always_ends_a_value_and_brackets_end_a_bare_one() {
+    let cif = read("#\\#CIF_2.0\ndata_x\n_a 'x'y\n_b [a]\n").unwrap_err();
+    assert!(cif.message.contains("without a tag"), "{cif}");
+
+    let cif = read("#\\#CIF_2.0\ndata_x\nloop_\n_a\n_b\n_c\n'x' a[1]\n").unwrap();
+    let l = cif.blocks[0].loop_with("_a").unwrap();
+    assert_eq!(
+        l.rows,
+        [[
+            value("x", Style::SingleQuoted),
+            Value::new("a"),
+            Value::List(vec![Value::new("1")]),
+        ]]
+    );
+}
+
+#[test]
+fn a_cif_1_1_document_reads_brackets_as_text() {
+    let cif = read("data_x\n_a [1 _b x\n").unwrap();
+
+    assert_eq!(text(&cif, "_a"), "[1");
+}
+
+#[test]
+fn a_1_1_document_with_a_list_is_written_as_cif_2_0() {
+    let mut cif = read("data_x\n_a 1\n").unwrap();
+    let Item::Pair { value, .. } = &mut cif.blocks[0].items[0] else {
+        unreachable!()
+    };
+    *value = Value::List(vec![Value::new("1"), Value::new("2")]);
+
+    let written = cif.to_string();
+    assert!(written.starts_with("#\\#CIF_2.0\n"), "{written}");
+    assert_eq!(read(&written).unwrap().version, Version::V2_0);
 }
 
 #[test]
@@ -116,8 +194,15 @@ fn malformed_documents_say_what_is_wrong_and_where() {
     assert!(error("_a 1\n").message.contains("before the first data block"));
     assert!(error("data_x\n1\n").message.contains("without a tag"));
     assert!(error("data_x\nsave_f\n_a 1\n").message.contains("closing `save_`"));
-    assert!(error("#\\#CIF_2.0\ndata_x\n").message.contains("CIF 2.0"));
     assert!(error("data_x\nglobal_\n").message.contains("reserved"));
+
+    let v2 = |body: &str| error(&format!("#\\#CIF_2.0\ndata_x\n{body}\n"));
+    assert!(v2("_a [1 2").message.contains("closing `]`"));
+    assert!(v2("_a {'k':1").message.contains("closing `}`"));
+    assert!(v2("_a {k:1}").message.contains("must be quoted"));
+    assert!(v2("_a {'k' 1}").message.contains("without its `:`"));
+    assert!(v2("_a '''open").message.contains("closing '''"));
+    assert!(v2("_a ]").message.contains("closes no list"));
 }
 
 #[test]
@@ -129,5 +214,5 @@ fn a_text_with_a_line_starting_with_a_semicolon_is_written_with_a_space_before_i
     *value = Value::new("one\n;two");
 
     let read_back = read(&cif.to_string()).unwrap();
-    assert_eq!(read_back.blocks[0].value("_a").unwrap().text, "one\n ;two");
+    assert_eq!(text(&read_back, "_a"), "one\n ;two");
 }

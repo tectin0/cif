@@ -2,7 +2,7 @@
 name = "cif"
 version = "0.2.0"
 edition = "2021"
-description = "Reads and writes CIF 1.1 documents without losing anything they hold"
+description = "Reads and writes CIF 1.1 and 2.0 documents without losing anything they hold"
 license = "GPL-3.0-only"
 repository = "https://github.com/tectin0/cif"
 readme = "README.md"

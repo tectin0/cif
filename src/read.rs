@@ -1,8 +1,10 @@
-//! Reading a CIF 1.1 document.
+//! Reading a CIF 1.1 or 2.0 document.
 
-use crate::document::{Cif, DataBlock, Item, Loop, Style, Value};
+use crate::document::{
+    Cif, DataBlock, Item, Loop, Style, TableEntry, Value, Version, V2_DELIMITERS,
+};
 
-/// Why a text isn't a CIF 1.1 document, and on which line.
+/// Why a text isn't a CIF document, and on which line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadError {
     /// The line, counting from 1.
@@ -19,19 +21,34 @@ impl std::fmt::Display for ReadError {
 
 impl std::error::Error for ReadError {}
 
-/// Reads `text` as a CIF 1.1 document. A leading byte order mark is skipped, and a line may end
-/// in `\r\n`.
+/// The first line of a CIF 2.0 document.
+pub(crate) const V2_MAGIC: &str = "#\\#CIF_2.0";
+
+/// Reads `text` as a CIF document: CIF 2.0 if its first line is `#\#CIF_2.0`, else CIF 1.1. A
+/// leading byte order mark is skipped, and a line may end in `\r\n`.
 pub fn read(text: &str) -> Result<Cif, ReadError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    if text.starts_with("#\\#CIF_2.0") {
-        return Err(ReadError {
-            line: 1,
-            message: "CIF 2.0 documents aren't supported".into(),
-        });
-    }
+    let first_line = text.lines().next().unwrap_or_default().trim_end();
+    let (version, body, first_body_line) = if first_line == V2_MAGIC {
+        let rest = text.find('\n').map_or("", |newline| &text[newline + 1..]);
+        (Version::V2_0, rest, 2)
+    } else {
+        (Version::V1_1, text, 1)
+    };
 
-    let tokens = tokenize(text)?;
-    Parser { tokens, next: 0 }.document()
+    let mut lexer = Lexer {
+        text: body,
+        pos: 0,
+        line: first_body_line,
+        version,
+    };
+    let mut tokens = Vec::new();
+    while let Some(token) = lexer.next_token()? {
+        tokens.push(token);
+    }
+    let mut cif = Parser { tokens, next: 0 }.document()?;
+    cif.version = version;
+    Ok(cif)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,102 +62,250 @@ enum Token {
     Value(Value),
 }
 
-fn tokenize(text: &str) -> Result<Vec<(Token, usize)>, ReadError> {
-    let bytes = text.as_bytes();
-    let mut tokens = Vec::new();
-    let mut pos = 0;
-    let mut line = 1;
+struct Lexer<'a> {
+    text: &'a str,
+    pos: usize,
+    line: usize,
+    version: Version,
+}
 
-    let line_end = |from: usize| text[from..].find('\n').map_or(text.len(), |i| from + i);
-    let trim_cr = |s: &str| s.strip_suffix('\r').unwrap_or(s).to_string();
-
-    while pos < bytes.len() {
-        let c = bytes[pos];
-        if c == b'\n' {
-            line += 1;
-            pos += 1;
-            continue;
-        }
-        if c.is_ascii_whitespace() {
-            pos += 1;
-            continue;
-        }
-
-        let at_line_start = pos == 0 || bytes[pos - 1] == b'\n';
-        let start_line = line;
-
-        if c == b';' && at_line_start {
-            let mut lines = vec![trim_cr(&text[pos + 1..line_end(pos)])];
-            pos = line_end(pos);
-            loop {
-                if pos >= bytes.len() {
-                    return Err(ReadError {
-                        line: start_line,
-                        message: "text field without its closing `;` line".into(),
-                    });
-                }
-                pos += 1;
-                line += 1;
-                if bytes.get(pos) == Some(&b';') {
-                    pos += 1;
-                    break;
-                }
-                lines.push(trim_cr(&text[pos..line_end(pos)]));
-                pos = line_end(pos);
-            }
-            tokens.push((
-                Token::Value(Value {
-                    text: lines.join("\n"),
-                    style: Style::TextField,
-                }),
-                start_line,
-            ));
-            continue;
-        }
-
-        if c == b'#' {
-            let end = line_end(pos);
-            tokens.push((Token::Comment(trim_cr(&text[pos + 1..end])), start_line));
-            pos = end;
-            continue;
-        }
-
-        if c == b'\'' || c == b'"' {
-            let end = line_end(pos);
-            let closing = (pos + 1..end).find(|&i| {
-                bytes[i] == c && bytes.get(i + 1).is_none_or(|next| next.is_ascii_whitespace())
-            });
-            let Some(closing) = closing else {
-                return Err(ReadError {
-                    line: start_line,
-                    message: format!("quoted value without its closing {}", c as char),
-                });
-            };
-            let style = if c == b'\'' {
-                Style::SingleQuoted
-            } else {
-                Style::DoubleQuoted
-            };
-            tokens.push((
-                Token::Value(Value {
-                    text: text[pos + 1..closing].to_string(),
-                    style,
-                }),
-                start_line,
-            ));
-            pos = closing + 1;
-            continue;
-        }
-
-        let end = (pos..bytes.len())
-            .find(|&i| bytes[i].is_ascii_whitespace())
-            .unwrap_or(bytes.len());
-        let word = &text[pos..end];
-        pos = end;
-        tokens.push((word_token(word, start_line)?, start_line));
+impl Lexer<'_> {
+    fn error<T>(&self, line: usize, message: impl Into<String>) -> Result<T, ReadError> {
+        Err(ReadError {
+            line,
+            message: message.into(),
+        })
     }
 
-    Ok(tokens)
+    fn peek(&self) -> Option<u8> {
+        self.text.as_bytes().get(self.pos).copied()
+    }
+
+    fn at_line_start(&self) -> bool {
+        self.pos == 0 || self.text.as_bytes()[self.pos - 1] == b'\n'
+    }
+
+    fn line_end(&self, from: usize) -> usize {
+        self.text[from..].find('\n').map_or(self.text.len(), |i| from + i)
+    }
+
+    /// Skips whitespace, counting lines; inside a list or table (`skip_comments`) comments too.
+    fn skip_whitespace(&mut self, skip_comments: bool) {
+        while let Some(c) = self.peek() {
+            if c == b'\n' {
+                self.line += 1;
+                self.pos += 1;
+            } else if c.is_ascii_whitespace() {
+                self.pos += 1;
+            } else if skip_comments && c == b'#' {
+                self.pos = self.line_end(self.pos);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn next_token(&mut self) -> Result<Option<(Token, usize)>, ReadError> {
+        self.skip_whitespace(false);
+        let Some(c) = self.peek() else {
+            return Ok(None);
+        };
+        let line = self.line;
+
+        if c == b'#' {
+            let end = self.line_end(self.pos);
+            let comment = trim_cr(&self.text[self.pos + 1..end]);
+            self.pos = end;
+            return Ok(Some((Token::Comment(comment), line)));
+        }
+
+        let starts_value = (c == b';' && self.at_line_start())
+            || c == b'\''
+            || c == b'"'
+            || (self.version == Version::V2_0 && (c == b'[' || c == b'{'));
+        if starts_value {
+            return Ok(Some((Token::Value(self.value()?), line)));
+        }
+        if self.version == Version::V2_0 && (c == b']' || c == b'}') {
+            return self.error(line, format!("`{}` closes no list or table", c as char));
+        }
+
+        let word = self.word();
+        Ok(Some((word_token(word, line)?, line)))
+    }
+
+    /// A bare word: up to whitespace, or in CIF 2.0 also up to a bracket or brace.
+    fn word(&mut self) -> &str {
+        let start = self.pos;
+        let v2 = self.version == Version::V2_0;
+        while let Some(c) = self.peek() {
+            if c.is_ascii_whitespace() || (v2 && V2_DELIMITERS.contains(&(c as char))) {
+                break;
+            }
+            self.pos += 1;
+        }
+        &self.text[start..self.pos]
+    }
+
+    /// The value at the current position: a text field, a quoted text, a list, a table, or a bare
+    /// word.
+    fn value(&mut self) -> Result<Value, ReadError> {
+        let line = self.line;
+        let c = self.peek().expect("called at a value");
+        let v2 = self.version == Version::V2_0;
+
+        if c == b';' && self.at_line_start() {
+            return self.text_field();
+        }
+        if c == b'\'' || c == b'"' {
+            return self.quoted();
+        }
+        if v2 && c == b'[' {
+            return self.list();
+        }
+        if v2 && c == b'{' {
+            return self.table();
+        }
+
+        let word = self.word().to_string();
+        match word.as_str() {
+            "" => self.error(line, format!("`{}` where a value belongs", c as char)),
+            "?" => Ok(Value::unknown()),
+            "." => Ok(Value::inapplicable()),
+            _ if word.starts_with('_') || crate::document::is_reserved(&word) => {
+                self.error(line, format!("`{word}` can't stand inside a list or table"))
+            }
+            _ => Ok(Value::Text {
+                text: word,
+                style: Style::Bare,
+            }),
+        }
+    }
+
+    fn text_field(&mut self) -> Result<Value, ReadError> {
+        let start_line = self.line;
+        let mut lines = vec![trim_cr(&self.text[self.pos + 1..self.line_end(self.pos)])];
+        self.pos = self.line_end(self.pos);
+        loop {
+            if self.pos >= self.text.len() {
+                return self.error(start_line, "text field without its closing `;` line");
+            }
+            self.pos += 1;
+            self.line += 1;
+            if self.peek() == Some(b';') {
+                self.pos += 1;
+                break;
+            }
+            lines.push(trim_cr(&self.text[self.pos..self.line_end(self.pos)]));
+            self.pos = self.line_end(self.pos);
+        }
+        Ok(Value::Text {
+            text: lines.join("\n"),
+            style: Style::TextField,
+        })
+    }
+
+    fn quoted(&mut self) -> Result<Value, ReadError> {
+        let line = self.line;
+        let bytes = self.text.as_bytes();
+        let quote = bytes[self.pos];
+
+        let delimiter = if quote == b'\'' { "'''" } else { "\"\"\"" };
+        if self.version == Version::V2_0 && self.text[self.pos..].starts_with(delimiter) {
+            let start = self.pos + 3;
+            let Some(length) = self.text[start..].find(delimiter) else {
+                return self.error(line, format!("text without its closing {delimiter}"));
+            };
+            let text = self.text[start..start + length].replace("\r\n", "\n");
+            self.line += text.matches('\n').count();
+            self.pos = start + length + 3;
+            let style = if quote == b'\'' {
+                Style::TripleSingleQuoted
+            } else {
+                Style::TripleDoubleQuoted
+            };
+            return Ok(Value::Text { text, style });
+        }
+
+        let end = self.line_end(self.pos);
+        let closing = if self.version == Version::V2_0 {
+            (self.pos + 1..end).find(|&i| bytes[i] == quote)
+        } else {
+            (self.pos + 1..end).find(|&i| {
+                bytes[i] == quote && bytes.get(i + 1).is_none_or(|next| next.is_ascii_whitespace())
+            })
+        };
+        let Some(closing) = closing else {
+            return self.error(line, format!("quoted value without its closing {}", quote as char));
+        };
+        let text = self.text[self.pos + 1..closing].to_string();
+        self.pos = closing + 1;
+        let style = if quote == b'\'' {
+            Style::SingleQuoted
+        } else {
+            Style::DoubleQuoted
+        };
+        Ok(Value::Text { text, style })
+    }
+
+    fn list(&mut self) -> Result<Value, ReadError> {
+        let line = self.line;
+        self.pos += 1;
+        let mut values = Vec::new();
+        loop {
+            self.skip_whitespace(true);
+            match self.peek() {
+                None => return self.error(line, "list without its closing `]`"),
+                Some(b']') => {
+                    self.pos += 1;
+                    return Ok(Value::List(values));
+                }
+                Some(b'}') => return self.error(self.line, "`}` inside a list"),
+                Some(_) => values.push(self.value()?),
+            }
+        }
+    }
+
+    fn table(&mut self) -> Result<Value, ReadError> {
+        let line = self.line;
+        self.pos += 1;
+        let mut entries = Vec::new();
+        loop {
+            self.skip_whitespace(true);
+            match self.peek() {
+                None => return self.error(line, "table without its closing `}`"),
+                Some(b'}') => {
+                    self.pos += 1;
+                    return Ok(Value::Table(entries));
+                }
+                Some(b'\'' | b'"') => {
+                    let key_line = self.line;
+                    let Value::Text { text: key, style } = self.quoted()? else {
+                        unreachable!("a quoted value is text")
+                    };
+                    if self.peek() != Some(b':') {
+                        return self.error(key_line, format!("table key '{key}' without its `:`"));
+                    }
+                    self.pos += 1;
+                    self.skip_whitespace(true);
+                    if self.peek().is_none_or(|c| c == b'}') {
+                        return self.error(key_line, format!("table key '{key}' without a value"));
+                    }
+                    let value = self.value()?;
+                    entries.push(TableEntry {
+                        key,
+                        key_style: style,
+                        value,
+                    });
+                }
+                Some(_) => return self.error(self.line, "a table's key must be quoted"),
+            }
+        }
+    }
+}
+
+fn trim_cr(s: &str) -> String {
+    s.strip_suffix('\r').unwrap_or(s).to_string()
 }
 
 fn word_token(word: &str, line: usize) -> Result<Token, ReadError> {
@@ -166,14 +331,14 @@ fn word_token(word: &str, line: usize) -> Result<Token, ReadError> {
     } else if lower == "global_" || lower == "stop_" {
         return Err(ReadError {
             line,
-            message: format!("`{word}` is reserved and not part of CIF 1.1"),
+            message: format!("`{word}` is reserved and not part of CIF"),
         });
     } else if word == "?" {
         Token::Value(Value::unknown())
     } else if word == "." {
         Token::Value(Value::inapplicable())
     } else {
-        Token::Value(Value {
+        Token::Value(Value::Text {
             text: word.to_string(),
             style: Style::Bare,
         })
@@ -281,7 +446,8 @@ impl Parser {
                     });
                 }
                 Token::Value(value) => {
-                    return self.error(line, format!("value `{}` without a tag", value.text));
+                    let shown = value.text().unwrap_or("a list or table").to_string();
+                    return self.error(line, format!("value `{shown}` without a tag"));
                 }
                 Token::Data(_) | Token::SaveEnd => unreachable!("handled before taking"),
             }

@@ -1,11 +1,25 @@
 //! What a CIF document holds.
 
-/// A CIF document: its data blocks in order, and the comments before the first one.
+/// The version of the CIF syntax a document is written in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Version {
+    /// CIF 1.1: values are text.
+    #[default]
+    V1_1,
+    /// CIF 2.0: values may also be lists and tables, and text may be triple-quoted. A document
+    /// starts with the line `#\#CIF_2.0`.
+    V2_0,
+}
+
+/// A CIF document: its version, its data blocks in order, and the comments before the first one.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cif {
-    /// The comments before the first data block (the `#\#CIF_1.1` line among them), without
-    /// their `#`.
+    /// The syntax the document is written in.
+    pub version: Version,
+    /// The comments before the first data block, without their `#`. For CIF 1.1 they include the
+    /// `#\#CIF_1.1` line if the document has one; CIF 2.0's `#\#CIF_2.0` line is [`Self::version`].
     pub comments: Vec<String>,
     /// The data blocks, in the order they were written.
     pub blocks: Vec<DataBlock>,
@@ -96,7 +110,7 @@ pub enum Item {
         items: Vec<Item>,
     },
     /// A comment, without its `#`. A comment written among a loop's or a pair's values is kept
-    /// after that loop or pair.
+    /// after that loop or pair; one inside a list or table is not kept.
     Comment(String),
 }
 
@@ -129,28 +143,47 @@ impl Loop {
     }
 }
 
-/// A value and the way it was written.
+/// A value: text and the way it is written, or (CIF 2.0) a list or a table of values.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Value {
-    /// The text, without quotes or text-field delimiters. `?` for [`Style::Unknown`] and `.` for
+pub enum Value {
+    /// Text, without quotes or delimiters: `?` for [`Style::Unknown`] and `.` for
     /// [`Style::Inapplicable`].
-    pub text: String,
-    /// How it is written.
-    pub style: Style,
+    Text {
+        /// The text.
+        text: String,
+        /// How it is written.
+        style: Style,
+    },
+    /// A list, `[a b c]` (CIF 2.0).
+    List(Vec<Value>),
+    /// A table, `{'key':value ...}` (CIF 2.0), its entries in order.
+    Table(Vec<TableEntry>),
+}
+
+/// An entry of a [`Value::Table`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct TableEntry {
+    /// The key.
+    pub key: String,
+    /// How the key is written: one of the quoted styles.
+    pub key_style: Style,
+    /// The value.
+    pub value: Value,
 }
 
 impl Value {
-    /// `text`, written in the plainest style that can hold it.
+    /// `text`, written in the plainest style that can hold it in both CIF versions.
     pub fn new(text: impl Into<String>) -> Self {
         let text = text.into();
         let style = Style::plainest_for(&text);
-        Self { text, style }
+        Value::Text { text, style }
     }
 
     /// `?`: the value is unknown.
     pub fn unknown() -> Self {
-        Self {
+        Value::Text {
             text: "?".into(),
             style: Style::Unknown,
         }
@@ -158,34 +191,56 @@ impl Value {
 
     /// `.`: the item doesn't apply.
     pub fn inapplicable() -> Self {
-        Self {
+        Value::Text {
             text: ".".into(),
             style: Style::Inapplicable,
         }
     }
 
-    /// The text, unless the value is `?` or `.`.
+    /// The text, unless the value is `?`, `.`, a list or a table.
     pub fn as_str(&self) -> Option<&str> {
-        match self.style {
-            Style::Unknown | Style::Inapplicable => None,
-            _ => Some(&self.text),
+        match self {
+            Value::Text {
+                style: Style::Unknown | Style::Inapplicable,
+                ..
+            } => None,
+            Value::Text { text, .. } => Some(text),
+            Value::List(_) | Value::Table(_) => None,
         }
     }
 
-    /// The value with `text` in its place, in the same style if that can hold `text`, else in the
-    /// plainest one that can.
+    /// The text as written, `?` and `.` included, unless the value is a list or a table.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Value::Text { text, .. } => Some(text),
+            Value::List(_) | Value::Table(_) => None,
+        }
+    }
+
+    /// A text value with `text` in this value's place: in this value's style if that can hold
+    /// `text` in both CIF versions, else in the plainest one that can.
     pub fn with_text(&self, text: impl Into<String>) -> Self {
         let text = text.into();
-        let style = if self.style.can_hold(&text) {
-            self.style
-        } else {
-            Style::plainest_for(&text)
-        };
-        Self { text, style }
+        match self {
+            Value::Text { style, .. }
+                if style.can_hold(&text, Version::V1_1) && style.can_hold(&text, Version::V2_0) =>
+            {
+                Value::Text {
+                    text,
+                    style: *style,
+                }
+            }
+            _ => Value::new(text),
+        }
+    }
+
+    /// Whether the value is a list or a table, which only CIF 2.0 can hold.
+    pub fn is_compound(&self) -> bool {
+        matches!(self, Value::List(_) | Value::Table(_))
     }
 }
 
-/// How a value is written.
+/// How a text value is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Style {
@@ -195,6 +250,10 @@ pub enum Style {
     SingleQuoted,
     /// In double quotes.
     DoubleQuoted,
+    /// In triple single quotes, `'''...'''`, which may span lines (CIF 2.0).
+    TripleSingleQuoted,
+    /// In triple double quotes, `"""..."""`, which may span lines (CIF 2.0).
+    TripleDoubleQuoted,
     /// In a text field: between lines starting with `;`.
     TextField,
     /// `?`, unquoted.
@@ -204,26 +263,56 @@ pub enum Style {
 }
 
 impl Style {
-    /// Whether a value written in this style reads back as `text` in this style.
-    pub fn can_hold(self, text: &str) -> bool {
+    /// Whether a value written in this style in a document of `version` reads back as `text` in
+    /// this style.
+    pub fn can_hold(self, text: &str, version: Version) -> bool {
+        let v2 = version == Version::V2_0;
         match self {
-            Style::Bare => can_be_bare(text),
-            Style::SingleQuoted => can_be_quoted(text, '\''),
-            Style::DoubleQuoted => can_be_quoted(text, '"'),
+            Style::Bare => can_be_bare(text, version),
+            Style::SingleQuoted => can_be_quoted(text, '\'', version),
+            Style::DoubleQuoted => can_be_quoted(text, '"', version),
+            Style::TripleSingleQuoted => v2 && can_be_triple_quoted(text, '\''),
+            Style::TripleDoubleQuoted => v2 && can_be_triple_quoted(text, '"'),
             Style::TextField => !text.split('\n').skip(1).any(|line| line.starts_with(';')),
             Style::Unknown => text == "?",
             Style::Inapplicable => text == ".",
         }
     }
 
-    /// The plainest style that can hold `text`, or a text field for a text no style can hold:
-    /// CIF 1.1 can't write a line starting with `;` after the first line of a text, so the
-    /// writer puts a space before each such line (see [`crate::Cif`]'s `Display`).
-    fn plainest_for(text: &str) -> Style {
+    /// The plainest style that can hold `text` in both CIF versions, or a text field for a text
+    /// no such style can hold: CIF can't write a line starting with `;` after the first line of a
+    /// text field, so the writer puts a space before each such line.
+    pub(crate) fn plainest_for(text: &str) -> Style {
         [Style::Bare, Style::SingleQuoted, Style::DoubleQuoted]
             .into_iter()
-            .find(|style| style.can_hold(text))
+            .find(|style| style.can_hold(text, Version::V1_1) && style.can_hold(text, Version::V2_0))
             .unwrap_or(Style::TextField)
+    }
+
+    /// The plainest style that can hold `text` in a document of `version`, or a text field (see
+    /// [`Self::plainest_for`]).
+    pub(crate) fn plainest_in(text: &str, version: Version) -> Style {
+        [
+            Style::Bare,
+            Style::SingleQuoted,
+            Style::DoubleQuoted,
+            Style::TripleSingleQuoted,
+            Style::TripleDoubleQuoted,
+        ]
+        .into_iter()
+        .find(|style| style.can_hold(text, version))
+        .unwrap_or(Style::TextField)
+    }
+
+    /// Whether the style quotes its text (a table's key must be quoted).
+    pub fn is_quoted(self) -> bool {
+        matches!(
+            self,
+            Style::SingleQuoted
+                | Style::DoubleQuoted
+                | Style::TripleSingleQuoted
+                | Style::TripleDoubleQuoted
+        )
     }
 }
 
@@ -242,20 +331,31 @@ pub(crate) fn is_reserved(word: &str) -> bool {
         || lower == "stop_"
 }
 
+/// The characters that end a bare value in CIF 2.0, besides whitespace.
+pub(crate) const V2_DELIMITERS: [char; 4] = ['[', ']', '{', '}'];
+
 /// A bare value starting with `;` is safe because the writer never starts a line with a bare value.
-fn can_be_bare(text: &str) -> bool {
+fn can_be_bare(text: &str, version: Version) -> bool {
     !text.is_empty()
         && text != "?"
         && text != "."
         && !text.chars().any(char::is_whitespace)
         && !text.starts_with(['_', '#', '\'', '"'])
         && !is_reserved(text)
+        && (version == Version::V1_1 || !text.contains(V2_DELIMITERS))
 }
 
-/// A quoted value ends at its quote followed by whitespace or the end of the line, so the text
-/// can hold its own quote anywhere but before whitespace or at its end.
-fn can_be_quoted(text: &str, quote: char) -> bool {
-    if text.contains(['\n', '\r']) || text.ends_with(quote) {
+/// In CIF 1.1 a quoted value ends at its quote followed by whitespace or the end of the line, so
+/// the text can hold its own quote anywhere but before whitespace or at its end. In CIF 2.0 a
+/// quoted value ends at its next quote, so the text can't hold it at all.
+fn can_be_quoted(text: &str, quote: char, version: Version) -> bool {
+    if text.contains(['\n', '\r']) {
+        return false;
+    }
+    if version == Version::V2_0 {
+        return !text.contains(quote);
+    }
+    if text.ends_with(quote) {
         return false;
     }
     let mut chars = text.chars().peekable();
@@ -265,4 +365,11 @@ fn can_be_quoted(text: &str, quote: char) -> bool {
         }
     }
     true
+}
+
+/// A triple-quoted value ends at the next three quotes, so the text can't hold three in a row, nor
+/// end with one (which would join the closing three).
+fn can_be_triple_quoted(text: &str, quote: char) -> bool {
+    let delimiter: String = std::iter::repeat_n(quote, 3).collect();
+    !text.contains(&delimiter) && !text.ends_with(quote)
 }
