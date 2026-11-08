@@ -1,32 +1,14 @@
 [package]
 name = "cif"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
+description = "Reads and writes CIF 1.1 documents without losing anything they hold"
 
 [dependencies]
-anyhow = "1.0"
-crystallib = { git = "https://www.github.com/tectin0/crystallib.git", version = "0.1.0", features = [
-    "symmetry",
-] }
-env_logger = "0.11"
-fraction = { version = "0.15.3", optional = true, features = [
-    "serde",
-    "with-serde-support",
-] }
-log = "0.4"
-num-traits = { version = "0.2.19", optional = true }
 serde = { version = "1.0.217", features = ["derive"], optional = true }
 
 [features]
-default = ["symmetry"]
-serde = ["dep:serde", "crystallib/serde"]
-symmetry = ["dep:fraction", "dep:num-traits", "fraction/serde"]
-
-
-[[example]]
-name = "phase_struct"
-path = "examples/phase_struct.rs"
-required-features = ["serde"]
+serde = ["dep:serde"]
 
 [dev-dependencies]
-serde_json = "1.0.132"
+proptest = "1.5"
