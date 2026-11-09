@@ -65,6 +65,50 @@ fn tags_and_reserved_words_ignore_case() {
 }
 
 #[test]
+fn a_ddlm_tag_is_the_same_as_its_ddl1_form() {
+    let cif = read("data_x\n_cell.length_a 1.0\nloop_\n_atom_site.label\nC1\n").unwrap();
+    let block = &cif.blocks[0];
+
+    assert_eq!(block.pair("_cell_length_a"), Some(&Value::new("1.0")));
+    assert!(block.loop_with("_atom_site_label").is_some());
+}
+
+#[test]
+fn a_pair_is_found_by_its_tag_and_a_single_row_loop_is_not_a_pair() {
+    let cif = read("data_x\n_a 1\nloop_\n_b\n2\n").unwrap();
+    let block = &cif.blocks[0];
+
+    assert_eq!(block.pair("_a"), Some(&Value::new("1")));
+    assert_eq!(block.pair("_b"), None);
+    assert_eq!(block.value("_b"), Some(&Value::new("2")));
+}
+
+#[test]
+fn a_new_number_keeps_the_value_as_written_while_it_reads_as_that_number() {
+    let written = value("5.4321(12)", Style::SingleQuoted);
+
+    assert_eq!(written.number(), Some((5.4321, Some(0.0012))));
+    assert_eq!(written.with_number(5.4321, Some(0.0012)), written);
+    assert_eq!(
+        written.with_number(5.5, None),
+        value("5.5", Style::SingleQuoted),
+        "a changed number is written in the value's style"
+    );
+    assert_eq!(Value::unknown().number(), None);
+}
+
+#[test]
+fn an_emptied_value_is_written_as_unknown_unless_it_is_unknown_or_inapplicable() {
+    assert_eq!(Value::new("1").emptied(), Value::unknown());
+    assert_eq!(Value::inapplicable().emptied(), Value::inapplicable());
+}
+
+#[test]
+fn a_block_name_holds_no_whitespace() {
+    assert_eq!(cif::DataBlock::name_for("Ba Ti O3"), "Ba_Ti_O3");
+}
+
+#[test]
 fn a_loop_keeps_its_tags_and_rows_in_order() {
     let cif = read("data_x\nloop_\n_b\n_a\n1 2\n3\n4\n").unwrap();
     let l = cif.blocks[0].loop_with("_a").unwrap();

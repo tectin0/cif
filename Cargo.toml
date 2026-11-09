@@ -1,6 +1,6 @@
 [package]
 name = "cif"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Reads and writes CIF 1.1 and 2.0 documents without losing anything they hold"
 license = "GPL-3.0-only"
@@ -10,9 +10,12 @@ keywords = ["cif", "crystallography", "parser", "iucr"]
 categories = ["parser-implementations", "science"]
 
 [dependencies]
+get-size2 = { version = "0.10", features = ["derive"], optional = true }
 serde = { version = "1.0.217", features = ["derive"], optional = true }
 
 [features]
+# `get_size2::GetSize` for the document types.
+get-size = ["dep:get-size2"]
 serde = ["dep:serde"]
 
 [dev-dependencies]

@@ -3,6 +3,7 @@
 /// The version of the CIF syntax a document is written in.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub enum Version {
     /// CIF 1.1: values are text.
     #[default]
@@ -15,6 +16,7 @@ pub enum Version {
 /// A CIF document: its version, its data blocks in order, and the comments before the first one.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub struct Cif {
     /// The syntax the document is written in.
     pub version: Version,
@@ -37,6 +39,7 @@ impl Cif {
 /// A data block: `data_<name>` and the items after it.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub struct DataBlock {
     /// The name after `data_`, as written.
     pub name: String,
@@ -51,6 +54,21 @@ impl DataBlock {
             name: name.into(),
             items: Vec::new(),
         }
+    }
+
+    /// `text` as a block name: with `_` for each whitespace character, which a name can't hold.
+    pub fn name_for(text: &str) -> String {
+        text.chars()
+            .map(|c| if c.is_whitespace() { '_' } else { c })
+            .collect()
+    }
+
+    /// The value of `tag`'s pair.
+    pub fn pair(&self, tag: &str) -> Option<&Value> {
+        self.items.iter().find_map(|item| match item {
+            Item::Pair { tag: t, value } if same_tag(t, tag) => Some(value),
+            _ => None,
+        })
     }
 
     /// The value of `tag`: of its pair, or of its loop if that has a single row.
@@ -92,6 +110,7 @@ impl DataBlock {
 /// What a data block or save frame holds, in the order it was written.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub enum Item {
     /// A tag and its value.
     Pair {
@@ -117,6 +136,7 @@ pub enum Item {
 /// A loop: its tags, and its values row by row. CIF has no way to write a loop without rows.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub struct Loop {
     /// The tags, as written.
     pub tags: Vec<String>,
@@ -146,6 +166,7 @@ impl Loop {
 /// A value: text and the way it is written, or (CIF 2.0) a list or a table of values.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub enum Value {
     /// Text, without quotes or delimiters: `?` for [`Style::Unknown`] and `.` for
     /// [`Style::Inapplicable`].
@@ -164,6 +185,7 @@ pub enum Value {
 /// An entry of a [`Value::Table`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub struct TableEntry {
     /// The key.
     pub key: String,
@@ -238,11 +260,50 @@ impl Value {
     pub fn is_compound(&self) -> bool {
         matches!(self, Value::List(_) | Value::Table(_))
     }
+
+    /// The number the value holds, with its standard uncertainty (see [`crate::number::parse`]),
+    /// or `None` for `?`, `.` or text that isn't a number.
+    pub fn number(&self) -> Option<(f64, Option<f64>)> {
+        crate::number::parse(self.as_str()?)
+    }
+
+    /// The number `value`, with the standard uncertainty `esd`, in this value's place: this value
+    /// as it is written if it already holds that number (up to rounding), else the number written
+    /// (see [`crate::number::format`]) in this value's style where that can hold it.
+    pub fn with_number(&self, value: f64, esd: Option<f64>) -> Self {
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-12 * a.abs().max(b.abs()).max(1.0);
+        let holds = self.number().is_some_and(|(read, read_esd)| {
+            close(read, value)
+                && match (read_esd, esd) {
+                    (Some(a), Some(b)) => close(a, b),
+                    (None, None) => true,
+                    _ => false,
+                }
+        });
+
+        if holds {
+            self.clone()
+        } else {
+            self.with_text(crate::number::format(value, esd))
+        }
+    }
+
+    /// The value of an item that has none: this value if it is `?` or `.`, else `?`.
+    pub fn emptied(&self) -> Self {
+        match self {
+            Value::Text {
+                style: Style::Unknown | Style::Inapplicable,
+                ..
+            } => self.clone(),
+            _ => Value::unknown(),
+        }
+    }
 }
 
 /// How a text value is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub enum Style {
     /// Without quotes.
     Bare,
@@ -316,9 +377,14 @@ impl Style {
     }
 }
 
-/// Whether two tags (or block or frame names) are the same, ignoring case.
+/// Whether two tags are the same, ignoring case, with DDLm's `.` between category and attribute
+/// read as `_` (`_atom_site.label` is `_atom_site_label`).
 pub fn same_tag(a: &str, b: &str) -> bool {
-    a.eq_ignore_ascii_case(b)
+    let fold = |c: char| match c {
+        '.' => '_',
+        c => c.to_ascii_lowercase(),
+    };
+    a.len() == b.len() && a.chars().map(fold).eq(b.chars().map(fold))
 }
 
 /// The words CIF reserves, ignoring case, by their prefix.
