@@ -98,6 +98,21 @@ fn a_new_number_keeps_the_value_as_written_while_it_reads_as_that_number() {
 }
 
 #[test]
+fn a_text_in_an_empty_value_s_place_takes_the_plainest_style() {
+    let empty = Value::new("");
+    assert_eq!(empty, value("", Style::SingleQuoted));
+
+    assert_eq!(empty.with_text("5.4321"), value("5.4321", Style::Bare));
+    assert_eq!(empty.with_number(0.25, None), value("0.25", Style::Bare));
+    assert_eq!(empty.with_text("Ba Ti O3"), value("Ba Ti O3", Style::SingleQuoted));
+    assert_eq!(
+        value("x", Style::DoubleQuoted).with_text("5"),
+        value("5", Style::DoubleQuoted),
+        "a written value keeps its style"
+    );
+}
+
+#[test]
 fn an_emptied_value_is_written_as_unknown_unless_it_is_unknown_or_inapplicable() {
     assert_eq!(Value::new("1").emptied(), Value::unknown());
     assert_eq!(Value::inapplicable().emptied(), Value::inapplicable());

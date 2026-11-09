@@ -240,12 +240,15 @@ impl Value {
     }
 
     /// A text value with `text` in this value's place: in this value's style if that can hold
-    /// `text` in both CIF versions, else in the plainest one that can.
+    /// `text` in both CIF versions, else in the plainest one that can. An empty text's style is
+    /// the only one that can hold it, not a choice, so `text` takes the plainest style in its place.
     pub fn with_text(&self, text: impl Into<String>) -> Self {
         let text = text.into();
         match self {
-            Value::Text { style, .. }
-                if style.can_hold(&text, Version::V1_1) && style.can_hold(&text, Version::V2_0) =>
+            Value::Text { text: old, style }
+                if !old.is_empty()
+                    && style.can_hold(&text, Version::V1_1)
+                    && style.can_hold(&text, Version::V2_0) =>
             {
                 Value::Text {
                     text,
