@@ -1,6 +1,6 @@
 [package]
 name = "cif"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Reads and writes CIF 1.1 and 2.0 documents without losing anything they hold"
 # The code is GPL-3.0-only; the dictionaries in `dictionaries/` are COMCIFS's, CC-BY-4.0.

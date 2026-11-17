@@ -3,5 +3,6 @@
 *.cif
 !BaTiO3.cif
 !diamond.cif
+!dictionaries/*.cif
 
 /tests/files
