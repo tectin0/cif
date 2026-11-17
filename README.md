@@ -55,6 +55,28 @@ assert_eq!(hkl.len(), 3);
 
 The optional `serde` feature derives `Serialize` and `Deserialize` for the document types.
 
+`cif::read_with_spans` also tells where each part of the document is in the text (`cif::Spans`:
+byte ranges of every block header, tag, value, comment and save frame), so an editor can change one
+value in the text without writing the document anew. `Item::written` and `Value::written` write a
+single item or value as a document would, and `cif::read_value` reads one value.
+
+`cif::ddlm` reads DDLm dictionaries: each item's names, category, type, units, description and
+enumerated values, each category's class (a loop or a set) and keys. With the `core-dictionary`
+feature, `cif::ddlm::core()` is the IUCr core dictionary, embedded and read on first use:
+
+```rust,ignore
+let core = cif::ddlm::core();
+let a = core.definition("_cell_length_a").unwrap();
+assert_eq!(a.units.as_deref(), Some("angstroms"));
+assert_eq!(a.tag_for(cif::Version::V2_0), "_cell.length_a");
+assert_eq!(a.title(), "Cell length a");
+```
+
+`Definition::title` is an item's name for people: the dictionary's `_description.common` where it
+gives one (the core dictionary gives none), else the item's category and object ids as words, CIF's
+abbreviations written out (`_atom_site_fract_x` is "Atom site fractional x").
+
 ## License
 
-GPL-3.0-only
+The code is GPL-3.0-only. The dictionaries in `dictionaries/` are COMCIFS's, under CC BY 4.0
+(see `dictionaries/README.md`).

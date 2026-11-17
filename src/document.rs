@@ -36,11 +36,17 @@ impl Cif {
     }
 }
 
-/// A data block: `data_<name>` and the items after it.
+/// A data block: the comments introducing it, `data_<name>` and the items after it.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "get-size", derive(get_size2::GetSize))]
 pub struct DataBlock {
+    /// The comments between the block before it and its `data_` that follow a blank line, without
+    /// their `#`: they introduce this block. Comments right after the block before it, without a
+    /// blank line between, end that block, as its last items. The comments before the first block
+    /// are the document's ([`Cif::comments`]): a first block read has none, and one written has
+    /// its comments written as the document's, after them.
+    pub comments: Vec<String>,
     /// The name after `data_`, as written.
     pub name: String,
     /// The block's items, in the order they were written.
@@ -51,6 +57,7 @@ impl DataBlock {
     /// A block named `name` without items.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
+            comments: Vec::new(),
             name: name.into(),
             items: Vec::new(),
         }

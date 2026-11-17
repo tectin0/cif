@@ -1,9 +1,10 @@
 [package]
 name = "cif"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 description = "Reads and writes CIF 1.1 and 2.0 documents without losing anything they hold"
-license = "GPL-3.0-only"
+# The code is GPL-3.0-only; the dictionaries in `dictionaries/` are COMCIFS's, CC-BY-4.0.
+license = "GPL-3.0-only AND CC-BY-4.0"
 repository = "https://github.com/tectin0/cif"
 readme = "README.md"
 keywords = ["cif", "crystallography", "parser", "iucr"]
@@ -17,6 +18,8 @@ serde = { version = "1.0.217", features = ["derive"], optional = true }
 # `get_size2::GetSize` for the document types.
 get-size = ["dep:get-size2"]
 serde = ["dep:serde"]
+# `ddlm::core`, the IUCr core dictionary, embedded (about 1.1 MB of text).
+core-dictionary = []
 
 [dev-dependencies]
 proptest = "1.5"

@@ -1,8 +1,11 @@
 //! Reading a CIF 1.1 or 2.0 document.
 
+use std::ops::Range;
+
 use crate::document::{
     Cif, DataBlock, Item, Loop, Style, TableEntry, Value, Version, V2_DELIMITERS,
 };
+use crate::spans::{BlockSpans, ItemSpans, Spans};
 
 /// Why a text isn't a CIF document, and on which line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,28 +30,64 @@ pub(crate) const V2_MAGIC: &str = "#\\#CIF_2.0";
 /// Reads `text` as a CIF document: CIF 2.0 if its first line is `#\#CIF_2.0`, else CIF 1.1. A
 /// leading byte order mark is skipped, and a line may end in `\r\n`.
 pub fn read(text: &str) -> Result<Cif, ReadError> {
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let first_line = text.lines().next().unwrap_or_default().trim_end();
+    read_with_spans(text).map(|(cif, _)| cif)
+}
+
+/// Reads `text` as [`read`] does, and tells where each part of the document is in `text`.
+pub fn read_with_spans(text: &str) -> Result<(Cif, Spans), ReadError> {
+    let unmarked = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let first_line = unmarked.lines().next().unwrap_or_default().trim_end();
     let (version, body, first_body_line) = if first_line == V2_MAGIC {
-        let rest = text.find('\n').map_or("", |newline| &text[newline + 1..]);
+        let rest = unmarked
+            .find('\n')
+            .map_or("", |newline| &unmarked[newline + 1..]);
         (Version::V2_0, rest, 2)
     } else {
-        (Version::V1_1, text, 1)
+        (Version::V1_1, unmarked, 1)
     };
 
     let mut lexer = Lexer {
         text: body,
+        base: text.len() - body.len(),
         pos: 0,
         line: first_body_line,
         version,
+        after_blank_line: Vec::new(),
     };
     let mut tokens = Vec::new();
     while let Some(token) = lexer.next_token()? {
         tokens.push(token);
     }
-    let mut cif = Parser { tokens, next: 0 }.document()?;
+    let parser = Parser {
+        tokens,
+        next: 0,
+        after_blank_line: lexer.after_blank_line,
+    };
+    let (mut cif, spans) = parser.document()?;
     cif.version = version;
-    Ok(cif)
+    Ok((cif, spans))
+}
+
+/// Reads `text` as a single value of a document of `version`, as it would be written after a tag.
+pub fn read_value(text: &str, version: Version) -> Result<Value, ReadError> {
+    let mut lexer = Lexer {
+        text,
+        base: 0,
+        pos: 0,
+        line: 1,
+        version,
+        after_blank_line: Vec::new(),
+    };
+    lexer.skip_whitespace(false);
+    if lexer.peek().is_none() {
+        return lexer.error(1, "no value");
+    }
+    let value = lexer.value()?;
+    lexer.skip_whitespace(false);
+    if lexer.peek().is_some() {
+        return lexer.error(lexer.line, "more than one value");
+    }
+    Ok(value)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -64,6 +103,10 @@ enum Token {
 
 struct Lexer<'a> {
     text: &'a str,
+    /// Where the tokens start that follow a blank line, in order.
+    after_blank_line: Vec<usize>,
+    /// Where `text` starts in the text being read, which ranges count from.
+    base: usize,
     pos: usize,
     line: usize,
     version: Version,
@@ -86,15 +129,20 @@ impl Lexer<'_> {
     }
 
     fn line_end(&self, from: usize) -> usize {
-        self.text[from..].find('\n').map_or(self.text.len(), |i| from + i)
+        self.text[from..]
+            .find('\n')
+            .map_or(self.text.len(), |i| from + i)
     }
 
     /// Skips whitespace, counting lines; inside a list or table (`skip_comments`) comments too.
-    fn skip_whitespace(&mut self, skip_comments: bool) {
+    /// Answers how many line breaks it skipped.
+    fn skip_whitespace(&mut self, skip_comments: bool) -> usize {
+        let mut line_breaks = 0;
         while let Some(c) = self.peek() {
             if c == b'\n' {
                 self.line += 1;
                 self.pos += 1;
+                line_breaks += 1;
             } else if c.is_ascii_whitespace() {
                 self.pos += 1;
             } else if skip_comments && c == b'#' {
@@ -103,35 +151,41 @@ impl Lexer<'_> {
                 break;
             }
         }
+        line_breaks
     }
 
-    fn next_token(&mut self) -> Result<Option<(Token, usize)>, ReadError> {
-        self.skip_whitespace(false);
+    /// The next token, its line and its range.
+    fn next_token(&mut self) -> Result<Option<(Token, usize, Range<usize>)>, ReadError> {
+        let line_breaks = self.skip_whitespace(false);
         let Some(c) = self.peek() else {
             return Ok(None);
         };
         let line = self.line;
+        let start = self.pos;
+        if line_breaks >= 2 {
+            self.after_blank_line.push(self.base + start);
+        }
 
-        if c == b'#' {
+        let token = if c == b'#' {
             let end = self.line_end(self.pos);
             let comment = trim_cr(&self.text[self.pos + 1..end]);
             self.pos = end;
-            return Ok(Some((Token::Comment(comment), line)));
-        }
-
-        let starts_value = (c == b';' && self.at_line_start())
+            Token::Comment(comment)
+        } else if (c == b';' && self.at_line_start())
             || c == b'\''
             || c == b'"'
-            || (self.version == Version::V2_0 && (c == b'[' || c == b'{'));
-        if starts_value {
-            return Ok(Some((Token::Value(self.value()?), line)));
-        }
-        if self.version == Version::V2_0 && (c == b']' || c == b'}') {
+            || (self.version == Version::V2_0 && (c == b'[' || c == b'{'))
+        {
+            Token::Value(self.value()?)
+        } else if self.version == Version::V2_0 && (c == b']' || c == b'}') {
             return self.error(line, format!("`{}` closes no list or table", c as char));
-        }
+        } else {
+            let word = self.word();
+            word_token(word, line)?
+        };
 
-        let word = self.word();
-        Ok(Some((word_token(word, line)?, line)))
+        let range = self.base + start..self.base + self.pos;
+        Ok(Some((token, line, range)))
     }
 
     /// A bare word: up to whitespace, or in CIF 2.0 also up to a bracket or brace.
@@ -232,11 +286,17 @@ impl Lexer<'_> {
             (self.pos + 1..end).find(|&i| bytes[i] == quote)
         } else {
             (self.pos + 1..end).find(|&i| {
-                bytes[i] == quote && bytes.get(i + 1).is_none_or(|next| next.is_ascii_whitespace())
+                bytes[i] == quote
+                    && bytes
+                        .get(i + 1)
+                        .is_none_or(|next| next.is_ascii_whitespace())
             })
         };
         let Some(closing) = closing else {
-            return self.error(line, format!("quoted value without its closing {}", quote as char));
+            return self.error(
+                line,
+                format!("quoted value without its closing {}", quote as char),
+            );
         };
         let text = self.text[self.pos + 1..closing].to_string();
         self.pos = closing + 1;
@@ -347,16 +407,24 @@ fn word_token(word: &str, line: usize) -> Result<Token, ReadError> {
 }
 
 struct Parser {
-    tokens: Vec<(Token, usize)>,
+    tokens: Vec<(Token, usize, Range<usize>)>,
     next: usize,
+    /// Where the tokens start that follow a blank line, in order.
+    after_blank_line: Vec<usize>,
 }
+
+/// A pair's or loop's comments, which the document keeps as items after it, and their ranges.
+type Comments = (Vec<Item>, Vec<ItemSpans>);
+
+/// A block's or save frame's items, their ranges, and the range of a save frame's closing `save_`.
+type Items = (Vec<Item>, Vec<ItemSpans>, Range<usize>);
 
 impl Parser {
     fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.next).map(|(token, _)| token)
+        self.tokens.get(self.next).map(|(token, _, _)| token)
     }
 
-    fn take(&mut self) -> Option<(Token, usize)> {
+    fn take(&mut self) -> Option<(Token, usize, Range<usize>)> {
         let token = self.tokens.get(self.next).cloned();
         self.next += 1;
         token
@@ -366,7 +434,7 @@ impl Parser {
         self.tokens
             .get(self.next)
             .or(self.tokens.last())
-            .map_or(1, |(_, line)| *line)
+            .map_or(1, |(_, line, _)| *line)
     }
 
     fn error<T>(&self, line: usize, message: impl Into<String>) -> Result<T, ReadError> {
@@ -376,26 +444,97 @@ impl Parser {
         })
     }
 
-    fn document(mut self) -> Result<Cif, ReadError> {
+    fn document(mut self) -> Result<(Cif, Spans), ReadError> {
         let mut cif = Cif::default();
+        let mut spans = Spans::default();
 
-        while let Some((token, line)) = self.take() {
+        while let Some((token, line, range)) = self.take() {
             match token {
-                Token::Comment(text) if cif.blocks.is_empty() => cif.comments.push(text),
+                Token::Comment(text) if cif.blocks.is_empty() => {
+                    cif.comments.push(text);
+                    spans.comments.push(range);
+                }
                 Token::Data(name) => {
-                    let items = self.items(false)?;
-                    cif.blocks.push(DataBlock { name, items });
+                    let (comments, comment_ranges) =
+                        match (cif.blocks.last_mut(), spans.blocks.last_mut()) {
+                            (Some(before), Some(before_spans)) => {
+                                self.introduction(before, before_spans)
+                            }
+                            _ => (Vec::new(), Vec::new()),
+                        };
+                    let (items, item_spans, _) = self.items(false)?;
+                    cif.blocks.push(DataBlock {
+                        comments,
+                        name,
+                        items,
+                    });
+                    spans.blocks.push(BlockSpans {
+                        comments: comment_ranges,
+                        header: range,
+                        items: item_spans,
+                    });
                 }
                 _ => return self.error(line, "content before the first data block"),
             }
         }
 
-        Ok(cif)
+        Ok((cif, spans))
     }
 
-    /// The items up to the next data block (or the end), or, in a save frame, up to its `save_`.
-    fn items(&mut self, in_frame: bool) -> Result<Vec<Item>, ReadError> {
+    /// The comments that end `block` after a blank line, taken out of it, and their ranges: they
+    /// introduce the block after it. Comments right after its last other item stay its own.
+    fn introduction(
+        &self,
+        block: &mut DataBlock,
+        spans: &mut BlockSpans,
+    ) -> (Vec<String>, Vec<Range<usize>>) {
+        let is_comment = |spans: &ItemSpans| matches!(spans, ItemSpans::Comment(_));
+        // A comment written among a pair's or loop's values is an item after it, within its text.
+        let content_end = spans
+            .items
+            .iter()
+            .filter(|item| !is_comment(item))
+            .map(|item| item.whole().end)
+            .max()
+            .unwrap_or(spans.header.end);
+        let trailing = spans
+            .items
+            .iter()
+            .rposition(
+                |item| !matches!(item, ItemSpans::Comment(range) if range.start > content_end),
+            )
+            .map_or(0, |last| last + 1);
+        let Some(first) = (trailing..spans.items.len()).find(|&index| {
+            matches!(&spans.items[index], ItemSpans::Comment(range)
+                if self.after_blank_line.binary_search(&range.start).is_ok())
+        }) else {
+            return (Vec::new(), Vec::new());
+        };
+
+        let comments = block
+            .items
+            .drain(first..)
+            .filter_map(|item| match item {
+                Item::Comment(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+        let ranges = spans
+            .items
+            .drain(first..)
+            .filter_map(|item| match item {
+                ItemSpans::Comment(range) => Some(range),
+                _ => None,
+            })
+            .collect();
+        (comments, ranges)
+    }
+
+    /// The items up to the next data block (or the end), or, in a save frame, up to its `save_`,
+    /// their ranges, and the range of that `save_`.
+    fn items(&mut self, in_frame: bool) -> Result<Items, ReadError> {
         let mut items = Vec::new();
+        let mut spans = Vec::new();
 
         loop {
             match self.peek() {
@@ -403,46 +542,66 @@ impl Parser {
                     if in_frame {
                         return self.error(self.line(), "save frame without its closing `save_`");
                     }
-                    return Ok(items);
+                    return Ok((items, spans, 0..0));
                 }
                 Some(Token::SaveEnd) => {
                     if !in_frame {
                         return self.error(self.line(), "`save_` outside a save frame");
                     }
-                    self.take();
-                    return Ok(items);
+                    let (_, _, end) = self.take().expect("peeked");
+                    return Ok((items, spans, end));
                 }
                 _ => {}
             }
 
-            let (token, line) = self.take().expect("peeked");
+            let (token, line, range) = self.take().expect("peeked");
             match token {
-                Token::Comment(text) => items.push(Item::Comment(text)),
+                Token::Comment(text) => {
+                    items.push(Item::Comment(text));
+                    spans.push(ItemSpans::Comment(range));
+                }
                 Token::Tag(tag) => {
-                    let mut comments = Vec::new();
-                    let value = loop {
+                    let mut comments: Comments = (Vec::new(), Vec::new());
+                    let (value, value_range) = loop {
                         match self.take() {
-                            Some((Token::Comment(text), _)) => comments.push(Item::Comment(text)),
-                            Some((Token::Value(value), _)) => break value,
+                            Some((Token::Comment(text), _, comment)) => {
+                                comments.0.push(Item::Comment(text));
+                                comments.1.push(ItemSpans::Comment(comment));
+                            }
+                            Some((Token::Value(value), _, value_range)) => {
+                                break (value, value_range)
+                            }
                             _ => return self.error(line, format!("`{tag}` without a value")),
                         }
                     };
                     items.push(Item::Pair { tag, value });
-                    items.extend(comments);
+                    spans.push(ItemSpans::Pair {
+                        tag: range,
+                        value: value_range,
+                    });
+                    items.extend(comments.0);
+                    spans.extend(comments.1);
                 }
                 Token::Loop => {
-                    let (l, comments) = self.loop_body(line)?;
+                    let (l, loop_spans, comments) = self.loop_body(line, range)?;
                     items.push(Item::Loop(l));
-                    items.extend(comments);
+                    spans.push(loop_spans);
+                    items.extend(comments.0);
+                    spans.extend(comments.1);
                 }
                 Token::Save(name) => {
                     if in_frame {
                         return self.error(line, "save frame inside a save frame");
                     }
-                    let frame_items = self.items(true)?;
+                    let (frame_items, frame_spans, end) = self.items(true)?;
                     items.push(Item::SaveFrame {
                         name,
                         items: frame_items,
+                    });
+                    spans.push(ItemSpans::SaveFrame {
+                        header: range,
+                        items: frame_spans,
+                        end,
                     });
                 }
                 Token::Value(value) => {
@@ -454,22 +613,31 @@ impl Parser {
         }
     }
 
-    fn loop_body(&mut self, line: usize) -> Result<(Loop, Vec<Item>), ReadError> {
+    /// The loop after `loop_` (at `keyword`), its ranges, and the comments among its tags and
+    /// values.
+    fn loop_body(
+        &mut self,
+        line: usize,
+        keyword: Range<usize>,
+    ) -> Result<(Loop, ItemSpans, Comments), ReadError> {
         let mut tags = Vec::new();
-        let mut comments = Vec::new();
+        let mut tag_ranges = Vec::new();
+        let mut comments: Comments = (Vec::new(), Vec::new());
         loop {
             match self.peek() {
                 Some(Token::Tag(_)) => {
-                    let Some((Token::Tag(tag), _)) = self.take() else {
+                    let Some((Token::Tag(tag), _, range)) = self.take() else {
                         unreachable!("peeked a tag")
                     };
                     tags.push(tag);
+                    tag_ranges.push(range);
                 }
                 Some(Token::Comment(_)) => {
-                    let Some((Token::Comment(text), _)) = self.take() else {
+                    let Some((Token::Comment(text), _, range)) = self.take() else {
                         unreachable!("peeked a comment")
                     };
-                    comments.push(Item::Comment(text));
+                    comments.0.push(Item::Comment(text));
+                    comments.1.push(ItemSpans::Comment(range));
                 }
                 _ => break,
             }
@@ -479,19 +647,22 @@ impl Parser {
         }
 
         let mut values = Vec::new();
+        let mut value_ranges = Vec::new();
         loop {
             match self.peek() {
                 Some(Token::Value(_)) => {
-                    let Some((Token::Value(value), _)) = self.take() else {
+                    let Some((Token::Value(value), _, range)) = self.take() else {
                         unreachable!("peeked a value")
                     };
                     values.push(value);
+                    value_ranges.push(range);
                 }
                 Some(Token::Comment(_)) => {
-                    let Some((Token::Comment(text), _)) = self.take() else {
+                    let Some((Token::Comment(text), _, range)) = self.take() else {
                         unreachable!("peeked a comment")
                     };
-                    comments.push(Item::Comment(text));
+                    comments.0.push(Item::Comment(text));
+                    comments.1.push(ItemSpans::Comment(range));
                 }
                 _ => break,
             }
@@ -516,6 +687,11 @@ impl Parser {
         while values.len() > 0 {
             rows.push(values.by_ref().take(width).collect());
         }
-        Ok((Loop { tags, rows }, comments))
+        let spans = ItemSpans::Loop {
+            keyword,
+            tags: tag_ranges,
+            values: value_ranges,
+        };
+        Ok((Loop { tags, rows }, spans, comments))
     }
 }

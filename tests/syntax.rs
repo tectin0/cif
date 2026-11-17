@@ -275,3 +275,35 @@ fn a_text_with_a_line_starting_with_a_semicolon_is_written_with_a_space_before_i
     let read_back = read(&cif.to_string()).unwrap();
     assert_eq!(text(&read_back, "_a"), "one\n ;two");
 }
+
+#[test]
+fn comments_between_blocks_end_the_block_before_until_a_blank_line_and_then_introduce_the_next() {
+    // As ICSD ends a block, a pdCIF template introduces one, and both in one gap.
+    let cif = read(
+        "data_a\n_x 1\n#End of data_a\n\n\ndata_b\n_y 2\n\n# 6. SAMPLE\n# describes c\n\ndata_c\n\
+         _z 3\n# about c\n\n# about d\ndata_d\n_w 4\n",
+    )
+    .unwrap();
+    let comments = |block: usize| -> Vec<&str> {
+        let trailing = cif.blocks[block]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Comment(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let introducing = cif.blocks[block].comments.iter().map(String::as_str);
+        introducing.chain(["|"]).chain(trailing).collect()
+    };
+
+    assert_eq!(comments(0), ["|", "End of data_a"]);
+    assert_eq!(comments(1), ["|"]);
+    assert_eq!(comments(2), [" 6. SAMPLE", " describes c", "|", " about c"]);
+    assert_eq!(comments(3), [" about d", "|"]);
+    assert_eq!(
+        read(&cif.to_string()).unwrap(),
+        cif,
+        "they're written back where they belong"
+    );
+}

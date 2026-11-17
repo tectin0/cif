@@ -114,7 +114,16 @@ fn document() -> impl Strategy<Value = Cif> {
         (
             prop::collection::vec(comment(), 0..3),
             prop::collection::vec(
-                (name(), items(version)).prop_map(|(name, items)| DataBlock { name, items }),
+                (
+                    prop::collection::vec(comment(), 0..3),
+                    name(),
+                    items(version),
+                )
+                    .prop_map(|(comments, name, items)| DataBlock {
+                        comments,
+                        name,
+                        items,
+                    }),
                 0..4,
             ),
         )
@@ -126,13 +135,30 @@ fn document() -> impl Strategy<Value = Cif> {
     })
 }
 
+/// `cif` as reading it back gives it: the comments before the first block are the document's,
+/// so the first block's join them.
+fn as_read(mut cif: Cif) -> Cif {
+    if let Some(first) = cif.blocks.first_mut() {
+        cif.comments.append(&mut first.comments);
+    }
+    cif
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     #[test]
     fn a_written_document_reads_back_as_itself(cif in document()) {
         let written = cif.to_string();
-        prop_assert_eq!(read(&written), Ok(cif), "written:\n{}", written);
+        prop_assert_eq!(read(&written), Ok(as_read(cif)), "written:\n{}", written);
+    }
+
+    #[test]
+    fn a_document_s_parts_are_written_where_reading_finds_them(cif in document()) {
+        let (written, spans) = cif.written_with_spans();
+        prop_assert_eq!(&written, &cif.to_string());
+        let (_, read_spans) = cif::read_with_spans(&written).unwrap();
+        prop_assert_eq!(spans, read_spans, "written:\n{}", written);
     }
 
     #[test]
@@ -145,6 +171,7 @@ proptest! {
             version,
             comments: Vec::new(),
             blocks: vec![DataBlock {
+                comments: Vec::new(),
                 name: "x".into(),
                 items: vec![Item::Pair { tag: "_t".into(), value: Value::new(text.clone()) }],
             }],
